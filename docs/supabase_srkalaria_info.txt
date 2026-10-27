@@ -1,0 +1,9 @@
+pass : whatsapp-crm@2026
+
+-------------------------------------
+command to push all sql 
+
+npm install --global supabase
+supabase login
+supabase link --project-ref <your-project-ref>
+supabase db push

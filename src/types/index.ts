@@ -198,7 +198,11 @@ export interface Conversation {
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType =
+  | 'conversation_assigned'
+  | 'agreement_expiring'
+  | 'agreement_expired'
+  | 'rent_expiring';
 
 export interface Notification {
   id: string;
@@ -208,6 +212,8 @@ export interface Notification {
   type: NotificationType;
   conversation_id?: string;
   contact_id?: string;
+  entity_type?: 'investor' | 'client' | 'property';
+  entity_id?: string;
   /** Who triggered it. Null when an automation/system assigned it. */
   actor_user_id?: string;
   title: string;
@@ -704,6 +710,133 @@ export interface QuickReply {
   content_text?: string | null;
   /** Set when `kind === 'interactive'`. */
   interactive_payload?: InteractiveMessagePayload | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// Real Estate: Investors, Clients, Properties & Google Drive
+// (migration 047)
+// ============================================================
+
+export type InvestorRentalStatus = 'rented' | 'pending_for_rent' | 'vacant' | 'self_occupied';
+
+export interface Investor {
+  id: string;
+  account_id: string;
+  name: string;
+  phone: string;
+  email?: string | null;
+  address?: string | null;
+  purchase_flat_details?: string | null;
+  rental_status: InvestorRentalStatus;
+  rent_amount?: number | null;
+  rent_start_date?: string | null;
+  rent_end_date?: string | null;
+  agreement_details?: string | null;
+  agreement_start_date?: string | null;
+  agreement_end_date?: string | null;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ClientStatus = 'active' | 'in_process' | 'agreement_signed' | 'expired' | 'closed';
+
+export interface Client {
+  id: string;
+  account_id: string;
+  name: string;
+  phone: string;
+  email?: string | null;
+  id_proof_type?: string | null;
+  id_proof_number?: string | null;
+  id_proof_details?: string | null;
+  investor_id?: string | null;
+  agreement_details?: string | null;
+  agreement_start_date?: string | null;
+  agreement_end_date?: string | null;
+  rent_amount?: number | null;
+  deposit_amount?: number | null;
+  status: ClientStatus;
+  address?: string | null;
+  notes?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  investor?: Investor | null;
+}
+
+export type PropertyListingType = 'rent' | 'sell' | 'buy' | 'lease';
+export type PropertyStatus =
+  | 'interested'
+  | 'buy'
+  | 'sell'
+  | 'already_visited'
+  | 'not_interested'
+  | 'available'
+  | 'under_negotiation'
+  | 'sold'
+  | 'rented';
+
+export type PropertyInterestStatus =
+  | 'interested'
+  | 'buy'
+  | 'sell'
+  | 'already_visited'
+  | 'not_interested';
+
+export interface PropertyMediaItem {
+  id: string;
+  name: string;
+  type: 'image' | 'video' | 'document';
+  url: string;
+  thumbnail?: string | null;
+  driveFileId?: string | null;
+  size?: number | null;
+}
+
+export interface Property {
+  id: string;
+  account_id: string;
+  title: string;
+  property_type: string;
+  address?: string | null;
+  city?: string | null;
+  price?: number | null;
+  listing_type: PropertyListingType;
+  status: PropertyStatus;
+  interest_status?: PropertyInterestStatus | null;
+  investor_id?: string | null;
+  client_id?: string | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  area_sqft?: number | null;
+  description?: string | null;
+  media_urls: PropertyMediaItem[];
+  google_drive_folder_id?: string | null;
+  google_drive_folder_url?: string | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  investor?: Investor | null;
+  client?: Client | null;
+}
+
+export interface GoogleDriveConfig {
+  id: string;
+  account_id: string;
+  client_id?: string | null;
+  client_secret?: string | null;
+  refresh_token?: string | null;
+  access_token?: string | null;
+  access_token_expires_at?: string | null;
+  root_folder_id?: string | null;
+  root_folder_name: string;
+  is_connected: boolean;
+  connected_email?: string | null;
+  api_key?: string | null;
   created_at: string;
   updated_at: string;
 }
