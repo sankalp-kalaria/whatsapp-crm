@@ -1,26 +1,27 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { decrypt } from '@/lib/whatsapp/encryption';
-import { sendTextMessage } from '@/lib/whatsapp/meta-api';
-import {
-  isRecipientNotAllowedError,
-  phoneVariants,
-  sanitizePhoneForMeta,
-} from '@/lib/whatsapp/phone-utils';
+import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
   buildClientExpiryItem,
   buildInvestorExpiryItem,
+  calculateDaysFromToday,
 } from '@/lib/investors/check-expiries';
+import { sendSmartWhatsAppNotification } from '@/lib/whatsapp/notification-template';
 import type { Client, Investor } from '@/types';
 
 /**
  * POST /api/notifications/send
  *
  * Sends a notification message directly to a specific Client or Investor's
- * contact number via the connected WhatsApp Business Cloud API, logs the
- * message in the CRM inbox conversation thread (creating contact/conversation
- * if needed), and marks the notification row as read.
+ * contact number via the connected WhatsApp Business Cloud API.
+ *
+ * Automatically checks Meta's 24-hour customer service window:
+ * - If the customer replied within the last 24 hours, sends the full text message.
+ * - If more than 24 hours have passed (which causes Meta error 131047 on text
+ *   messages), automatically sends an APPROVED WhatsApp Message Template
+ *   (`agreement_notification_alert`, `client_investor_notification`, or the
+ *   selected approved template on the WABA).
  */
 export async function POST(request: Request) {
   try {
@@ -35,6 +36,11 @@ export async function POST(request: Request) {
       phone: inputPhone,
       name: inputName,
       message: inputMessage,
+      flatDetails: inputFlatDetails,
+      endDate: inputEndDate,
+      daysStatusLabel: inputDaysStatusLabel,
+      forceTemplate,
+      templateName: preferredTemplateName,
     } = body as {
       notificationId?: string;
       entityType?: 'investor' | 'client';
@@ -42,6 +48,11 @@ export async function POST(request: Request) {
       phone?: string;
       name?: string;
       message?: string;
+      flatDetails?: string | null;
+      endDate?: string | null;
+      daysStatusLabel?: string | null;
+      forceTemplate?: boolean;
+      templateName?: string | null;
     };
 
     const now = new Date();
@@ -49,6 +60,9 @@ export async function POST(request: Request) {
     let resolvedName = typeof inputName === 'string' ? inputName.trim() : '';
     let resolvedMessage =
       typeof inputMessage === 'string' ? inputMessage.trim() : '';
+    let resolvedFlatDetails = inputFlatDetails ?? null;
+    let resolvedEndDate = inputEndDate ?? null;
+    let resolvedDaysLabel = inputDaysStatusLabel ?? null;
 
     // 1. Resolve from live Investor or Client record on the spot if needed
     if (entityType === 'investor' && entityId) {
@@ -63,11 +77,15 @@ export async function POST(request: Request) {
         const investor = inv as Investor;
         if (!resolvedPhone) resolvedPhone = investor.phone || '';
         if (!resolvedName) resolvedName = investor.name || 'Investor';
-        if (!resolvedMessage) {
-          const built = buildInvestorExpiryItem(investor, now);
-          resolvedMessage =
-            built?.suggestedWhatsAppMessage ||
-            `Hello ${investor.name}, gentle reminder regarding your property agreement (${investor.purchase_flat_details || 'Flat/Property'}).`;
+        if (!resolvedFlatDetails)
+          resolvedFlatDetails = investor.purchase_flat_details || 'Flat/Property';
+        const built = buildInvestorExpiryItem(investor, now);
+        if (built) {
+          if (!resolvedEndDate) resolvedEndDate = built.endDate;
+          if (!resolvedDaysLabel) resolvedDaysLabel = built.daysStatusLabel;
+          if (!resolvedMessage) resolvedMessage = built.suggestedWhatsAppMessage;
+        } else if (!resolvedMessage) {
+          resolvedMessage = `Hello ${investor.name}, gentle reminder regarding your property agreement (${investor.purchase_flat_details || 'Flat/Property'}).`;
         }
       }
     } else if (entityType === 'client' && entityId) {
@@ -82,13 +100,25 @@ export async function POST(request: Request) {
         const client = cl as Client & { investor?: Investor | null };
         if (!resolvedPhone) resolvedPhone = client.phone || '';
         if (!resolvedName) resolvedName = client.name || 'Client';
-        if (!resolvedMessage) {
-          const built = buildClientExpiryItem(client, now);
-          resolvedMessage =
-            built?.suggestedWhatsAppMessage ||
-            `Hello ${client.name}, gentle reminder regarding your tenancy agreement.`;
+        if (!resolvedFlatDetails)
+          resolvedFlatDetails =
+            client.investor?.purchase_flat_details || 'Rented Unit';
+        const built = buildClientExpiryItem(client, now);
+        if (built) {
+          if (!resolvedEndDate) resolvedEndDate = built.endDate;
+          if (!resolvedDaysLabel) resolvedDaysLabel = built.daysStatusLabel;
+          if (!resolvedMessage) resolvedMessage = built.suggestedWhatsAppMessage;
+        } else if (!resolvedMessage) {
+          resolvedMessage = `Hello ${client.name}, gentle reminder regarding your tenancy agreement.`;
         }
       }
+    }
+
+    if (resolvedEndDate && !resolvedDaysLabel) {
+      resolvedDaysLabel = calculateDaysFromToday(
+        resolvedEndDate,
+        now
+      ).daysStatusLabel;
     }
 
     if (!resolvedPhone) {
@@ -105,72 +135,28 @@ export async function POST(request: Request) {
       resolvedMessage = `Hello ${resolvedName || 'there'}, this is an important notification regarding your property agreement.`;
     }
 
-    // 2. Normalize phone number for WhatsApp Cloud API (prepend 91 for 10-digit Indian mobile numbers)
     let sanitizedPhone = sanitizePhoneForMeta(resolvedPhone);
     if (sanitizedPhone.length === 10 && /^[6-9]\d{9}$/.test(sanitizedPhone)) {
       sanitizedPhone = `91${sanitizedPhone}`;
     }
 
-    if (!sanitizedPhone || sanitizedPhone.length < 8) {
-      return NextResponse.json(
-        {
-          error: `Invalid contact phone number: "${resolvedPhone}".`,
-        },
-        { status: 400 }
-      );
-    }
-
-    // 3. Load connected WhatsApp config for this account
-    const { data: waConfig } = await db
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
-      .eq('account_id', accountId)
-      .eq('status', 'connected')
-      .maybeSingle();
-
-    if (!waConfig?.phone_number_id || !waConfig?.access_token) {
-      return NextResponse.json(
-        {
-          error:
-            'WhatsApp Business API is not connected for this account. Please connect WhatsApp in Settings.',
-          fallbackWaLink: `https://wa.me/${sanitizedPhone}?text=${encodeURIComponent(resolvedMessage)}`,
-        },
-        { status: 400 }
-      );
-    }
-
-    const accessToken = decrypt(waConfig.access_token);
-    const variants = phoneVariants(sanitizedPhone);
-
-    let whatsappMessageId = '';
-    let deliveredPhone = sanitizedPhone;
-    let lastError: unknown = null;
-
-    for (const candidate of variants) {
-      try {
-        const res = await sendTextMessage({
-          phoneNumberId: waConfig.phone_number_id,
-          accessToken,
-          to: candidate,
-          text: resolvedMessage,
-        });
-        whatsappMessageId = res.messageId;
-        deliveredPhone = candidate;
-        lastError = null;
-        break;
-      } catch (err) {
-        lastError = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(msg)) {
-          break;
-        }
-      }
-    }
-
-    if (lastError || !whatsappMessageId) {
+    // 2. Send via Smart WhatsApp Notification (auto-uses Template outside 24h window to prevent 131047)
+    let sendResult;
+    try {
+      sendResult = await sendSmartWhatsAppNotification(db, accountId, userId, {
+        phone: sanitizedPhone,
+        name: resolvedName || sanitizedPhone,
+        message: resolvedMessage,
+        flatDetails: resolvedFlatDetails,
+        endDate: resolvedEndDate,
+        daysStatusLabel: resolvedDaysLabel,
+        forceTemplate,
+        preferredTemplateName,
+      });
+    } catch (sendErr) {
       const errMsg =
-        lastError instanceof Error
-          ? lastError.message
+        sendErr instanceof Error
+          ? sendErr.message
           : 'Failed to send WhatsApp notification';
       return NextResponse.json(
         {
@@ -181,17 +167,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Best-effort: Persist to CRM contact + conversation + messages so it shows up in the Inbox
-    let persistedConversationId: string | null = null;
+    // 3. Persist to CRM contact + conversation + messages so it shows up in the Inbox
+    let persistedConversationId: string | null = sendResult.conversationId;
     try {
-      const { data: existingContacts } = await db
-        .from('contacts')
-        .select('id, phone, name')
-        .eq('account_id', accountId)
-        .in('phone', variants)
-        .limit(1);
-
-      let contactId = existingContacts?.[0]?.id ?? null;
+      let contactId = sendResult.contactId;
 
       if (!contactId) {
         const { data: createdContact } = await db
@@ -199,15 +178,15 @@ export async function POST(request: Request) {
           .insert({
             account_id: accountId,
             user_id: userId,
-            phone: deliveredPhone,
-            name: resolvedName || deliveredPhone,
+            phone: sendResult.deliveredPhone,
+            name: resolvedName || sendResult.deliveredPhone,
           })
           .select('id')
           .single();
         contactId = createdContact?.id ?? null;
       }
 
-      if (contactId) {
+      if (contactId && !persistedConversationId) {
         const { data: existingConv } = await db
           .from('conversations')
           .select('id')
@@ -231,29 +210,30 @@ export async function POST(request: Request) {
             .single();
           persistedConversationId = createdConv?.id ?? null;
         }
+      }
 
-        if (persistedConversationId) {
-          const nowIso = new Date().toISOString();
-          await db.from('messages').insert({
-            account_id: accountId,
-            conversation_id: persistedConversationId,
-            sender_type: 'agent',
-            sender_id: userId,
-            content_type: 'text',
-            content_text: resolvedMessage,
-            message_id: whatsappMessageId,
-            status: 'sent',
-          });
+      if (persistedConversationId) {
+        const nowIso = new Date().toISOString();
+        await db.from('messages').insert({
+          account_id: accountId,
+          conversation_id: persistedConversationId,
+          sender_type: 'agent',
+          sender_id: userId,
+          content_type: sendResult.sentAs,
+          template_name: sendResult.templateName ?? null,
+          content_text: sendResult.renderedText,
+          message_id: sendResult.whatsappMessageId,
+          status: 'sent',
+        });
 
-          await db
-            .from('conversations')
-            .update({
-              last_message_text: resolvedMessage.slice(0, 200),
-              last_message_at: nowIso,
-              updated_at: nowIso,
-            })
-            .eq('id', persistedConversationId);
-        }
+        await db
+          .from('conversations')
+          .update({
+            last_message_text: sendResult.renderedText.slice(0, 200),
+            last_message_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq('id', persistedConversationId);
       }
     } catch (persistErr) {
       console.warn(
@@ -262,7 +242,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 5. Mark notification as read if notificationId was provided
+    // 4. Mark notification as read if notificationId was provided
     if (notificationId) {
       await db
         .from('notifications')
@@ -273,14 +253,18 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      whatsappMessageId,
+      whatsappMessageId: sendResult.whatsappMessageId,
+      sentAs: sendResult.sentAs,
+      templateName: sendResult.templateName,
+      outside24hWindow: sendResult.outside24hWindow,
+      isParameterizedTemplate: sendResult.isParameterizedTemplate,
       conversationId: persistedConversationId,
-      recipientName: resolvedName || deliveredPhone,
-      recipientPhone: deliveredPhone,
+      recipientName: resolvedName || sendResult.deliveredPhone,
+      recipientPhone: sendResult.deliveredPhone,
+      fallbackWaLink: `https://wa.me/${sendResult.deliveredPhone}?text=${encodeURIComponent(resolvedMessage)}`,
     });
   } catch (error) {
     console.error('[notifications/send] Error:', error);
     return toErrorResponse(error);
   }
 }
-

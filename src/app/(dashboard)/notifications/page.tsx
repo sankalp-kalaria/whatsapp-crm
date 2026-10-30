@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import type { Client, Investor, Notification } from "@/types";
+import type { Client, Investor, MessageTemplate, Notification } from "@/types";
 import {
   Bell,
   CalendarClock,
   Check,
   CheckCheck,
   Clock,
+  FileText,
   FileWarning,
   Landmark,
   Loader2,
@@ -18,6 +19,7 @@ import {
   Phone,
   RefreshCw,
   Send,
+  Sparkles,
   UserCheck,
   UserPlus,
 } from "lucide-react";
@@ -74,12 +76,15 @@ export default function NotificationsPage() {
   const [clients, setClients] = useState<
     (Client & { investor?: Investor | null })[]
   >([]);
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("auto");
+  const [syncingTemplates, setSyncingTemplates] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<NotificationFilterTab>("all");
   const [sendingKeys, setSendingKeys] = useState<Record<string, boolean>>({});
-  const [sentKeys, setSentKeys] = useState<Record<string, boolean>>({});
+  const [sentKeys, setSentKeys] = useState<Record<string, string>>({});
   // Timestamp state used so every calculation uses the current live date on the spot
   const [nowDate, setNowDate] = useState<Date>(() => new Date());
 
@@ -99,7 +104,7 @@ export default function NotificationsPage() {
       }
 
       const supabase = createClient();
-      const [notifRes, invRes, clientRes] = await Promise.all([
+      const [notifRes, invRes, clientRes, tplRes] = await Promise.all([
         supabase
           .from("notifications")
           .select("*")
@@ -116,6 +121,11 @@ export default function NotificationsPage() {
           .select("*, investor:investors(*)")
           .eq("account_id", accountId)
           .order("created_at", { ascending: false }),
+        supabase
+          .from("message_templates")
+          .select("*")
+          .eq("account_id", accountId)
+          .order("created_at", { ascending: false }),
       ]);
 
       setRefreshing(false);
@@ -130,6 +140,7 @@ export default function NotificationsPage() {
       setClients(
         (clientRes.data ?? []) as (Client & { investor?: Investor | null })[],
       );
+      setTemplates((tplRes.data ?? []) as MessageTemplate[]);
 
       if (showRefreshToast) {
         toast.success("Notifications recalculated with current date");
@@ -137,6 +148,30 @@ export default function NotificationsPage() {
     },
     [accountId],
   );
+
+  const handleSyncTemplates = useCallback(async () => {
+    setSyncingTemplates(true);
+    try {
+      const res = await fetch("/api/notifications/templates", {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Failed to sync notification templates");
+        return;
+      }
+      if (Array.isArray(data.templates)) {
+        setTemplates(data.templates);
+      }
+      toast.success(
+        "Synced Notification & Reminder Templates with Meta WhatsApp API",
+      );
+    } catch {
+      toast.error("Failed to sync templates");
+    } finally {
+      setSyncingTemplates(false);
+    }
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -345,6 +380,11 @@ export default function NotificationsPage() {
         phone?: string;
         name?: string;
         message?: string;
+        flatDetails?: string | null;
+        endDate?: string | null;
+        daysStatusLabel?: string | null;
+        forceTemplate?: boolean;
+        templateName?: string;
       },
     ) => {
       e.stopPropagation();
@@ -353,6 +393,12 @@ export default function NotificationsPage() {
         toast.error("No contact phone number available for this notification.");
         return;
       }
+
+      const chosenTemplate =
+        params.templateName ||
+        (selectedTemplate !== "auto" ? selectedTemplate : undefined);
+      const shouldForceTemplate =
+        Boolean(params.forceTemplate) || Boolean(chosenTemplate);
 
       setSendingKeys((prev) => ({ ...prev, [params.key]: true }));
       try {
@@ -366,6 +412,11 @@ export default function NotificationsPage() {
             phone: params.phone,
             name: params.name,
             message: params.message,
+            flatDetails: params.flatDetails,
+            endDate: params.endDate,
+            daysStatusLabel: params.daysStatusLabel,
+            forceTemplate: shouldForceTemplate,
+            templateName: chosenTemplate,
           }),
         });
 
@@ -383,7 +434,12 @@ export default function NotificationsPage() {
           return;
         }
 
-        setSentKeys((prev) => ({ ...prev, [params.key]: true }));
+        const modeLabel =
+          data.sentAs === "template"
+            ? `Sent via Template (${data.templateName})`
+            : "Notification Sent";
+
+        setSentKeys((prev) => ({ ...prev, [params.key]: modeLabel }));
         if (params.notificationId) {
           setNotifications(
             (prev) =>
@@ -395,16 +451,22 @@ export default function NotificationsPage() {
           );
         }
 
-        toast.success(
-          `Notification sent to ${data.recipientName || params.name || "recipient"} (${data.recipientPhone || params.phone})`,
-        );
+        if (data.sentAs === "template") {
+          toast.success(
+            `Notification template "${data.templateName}" sent to ${data.recipientName || params.name || "recipient"} (${data.recipientPhone || params.phone})`,
+          );
+        } else {
+          toast.success(
+            `Notification sent to ${data.recipientName || params.name || "recipient"} (${data.recipientPhone || params.phone})`,
+          );
+        }
       } catch {
         toast.error("Network error while sending notification");
       } finally {
         setSendingKeys((prev) => ({ ...prev, [params.key]: false }));
       }
     },
-    [],
+    [selectedTemplate],
   );
 
   const handleClick = useCallback(
@@ -469,6 +531,10 @@ export default function NotificationsPage() {
     year: "numeric",
   });
 
+  const approvedTemplates = templates.filter(
+    (tpl) => (tpl.status || "").toUpperCase() === "APPROVED",
+  );
+
   const renderDaysBadge = (item: {
     daysRemaining?: number;
     isExpired?: boolean;
@@ -499,7 +565,7 @@ export default function NotificationsPage() {
 
   const renderRecipientCard = (item: DirectRecipientItem) => {
     const isSending = !!sendingKeys[item.key];
-    const isSent = !!sentKeys[item.key];
+    const sentLabel = sentKeys[item.key];
     const EntityIcon = item.entityType === "investor" ? Landmark : UserCheck;
 
     return (
@@ -578,21 +644,24 @@ export default function NotificationsPage() {
                   phone: item.phone,
                   name: item.name,
                   message: item.whatsappMessage,
+                  flatDetails: item.flatDetails,
+                  endDate: item.endDate,
+                  daysStatusLabel: item.daysStatusLabel,
                 })
               }
               className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm"
             >
               {isSending ? (
                 <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-              ) : isSent ? (
+              ) : sentLabel ? (
                 <Check className="size-3.5 mr-1.5" />
               ) : (
                 <Send className="size-3.5 mr-1.5" />
               )}
               {isSending
                 ? "Sending..."
-                : isSent
-                  ? "Notification Sent"
+                : sentLabel
+                  ? sentLabel
                   : "Send Notification"}
             </Button>
 
@@ -638,12 +707,27 @@ export default function NotificationsPage() {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             All agreement &amp; rental notification days are calculated on the
-            spot from today&apos;s date (past due or upcoming). Send WhatsApp
-            notifications directly to any client or investor.
+            spot from today&apos;s date (past due or upcoming). Automatically
+            uses Approved WhatsApp Templates when outside the 24-hour customer
+            reply window.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={syncingTemplates}
+            onClick={handleSyncTemplates}
+            title="Create & sync Agreement Notification and Reminder templates with Meta WhatsApp API"
+          >
+            {syncingTemplates ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4 mr-1.5 text-emerald-400" />
+            )}
+            Sync Notification Templates
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -668,6 +752,57 @@ export default function NotificationsPage() {
             )}
             {t("markAllRead")}
           </Button>
+        </div>
+      </div>
+
+      {/* WhatsApp Notification & Reminder Template Selector Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3.5">
+        <div className="flex items-start gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400">
+            <FileText className="size-4" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-foreground">
+              WhatsApp 24h Window &amp; Reminder Template Mode
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              When a client/investor hasn&apos;t replied in the last 24 hours
+              (Meta code 131047), notifications are automatically delivered
+              using an Approved WhatsApp Template (
+              <code className="text-emerald-400">
+                agreement_notification_alert
+              </code>{" "}
+              /{" "}
+              <code className="text-emerald-400">
+                agreement_reminder_template
+              </code>
+              ).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <label
+            htmlFor="notif-template-select"
+            className="text-xs font-medium text-muted-foreground whitespace-nowrap"
+          >
+            Delivery Mode:
+          </label>
+          <select
+            id="notif-template-select"
+            value={selectedTemplate}
+            onChange={(e) => setSelectedTemplate(e.target.value)}
+            className="h-8 rounded-md border border-border bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="auto">
+              Auto (24h Text / Approved Template Fallback)
+            </option>
+            {approvedTemplates.map((tpl) => (
+              <option key={tpl.id} value={tpl.name}>
+                Template: {tpl.name} ({tpl.status})
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -754,7 +889,7 @@ export default function NotificationsPage() {
                     const isUnread = !n.read_at;
                     const rowKey = `notif-${n.id}`;
                     const isSending = !!sendingKeys[rowKey];
-                    const isSent = !!sentKeys[rowKey];
+                    const sentLabel = sentKeys[rowKey];
                     const hasRecipient = !!(
                       n.recipientPhone ||
                       n.recipientEntityId ||
@@ -869,21 +1004,24 @@ export default function NotificationsPage() {
                                       n.suggestedWhatsAppMessage ||
                                       n.liveBody ||
                                       n.liveTitle,
+                                    flatDetails: n.flatDetails,
+                                    endDate: n.endDate,
+                                    daysStatusLabel: n.daysStatusLabel,
                                   })
                                 }
                                 className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm"
                               >
                                 {isSending ? (
                                   <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                                ) : isSent ? (
+                                ) : sentLabel ? (
                                   <Check className="size-3.5 mr-1.5" />
                                 ) : (
                                   <Send className="size-3.5 mr-1.5" />
                                 )}
                                 {isSending
                                   ? "Sending..."
-                                  : isSent
-                                    ? "Notification Sent"
+                                  : sentLabel
+                                    ? sentLabel
                                     : "Send Notification"}
                               </Button>
 

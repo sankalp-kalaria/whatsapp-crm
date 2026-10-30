@@ -22,6 +22,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { sendSmartWhatsAppNotification } from '@/lib/whatsapp/notification-template'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -507,14 +508,62 @@ async function handleStatusUpdate(status: {
   //    the owning account for delivery.
   const { data: msgRow } = await supabaseAdmin()
     .from('messages')
-    .select('conversation_id, conversations(account_id)')
+    .select('id, conversation_id, content_type, content_text, sender_id, conversations(account_id, user_id, contact:contacts(name, phone))')
     .eq('message_id', status.id)
     .limit(1)
     .maybeSingle()
 
   if (msgRow) {
-    const conv = msgRow.conversations as { account_id: string } | null
+    const conv = msgRow.conversations as {
+      account_id: string
+      user_id?: string
+      contact?: { name?: string; phone?: string } | null
+    } | null
     const accountId = conv?.account_id
+
+    // Auto-recover from Meta error 131047 (Re-engagement message — >24h since customer last replied):
+    // If a free-form text message failed with 131047, automatically send an APPROVED template fallback!
+    if (
+      failure?.code === 131047 &&
+      accountId &&
+      msgRow.content_type !== 'template' &&
+      status.recipient_id
+    ) {
+      try {
+        const fallbackResult = await sendSmartWhatsAppNotification(
+          supabaseAdmin(),
+          accountId,
+          msgRow.sender_id || conv?.user_id || '',
+          {
+            phone: status.recipient_id,
+            name: conv?.contact?.name || status.recipient_id,
+            message: msgRow.content_text || 'Important property notification',
+            forceTemplate: true,
+          }
+        )
+        console.info(
+          `[webhook] Auto-recovered 131047 for ${status.recipient_id} using template "${fallbackResult.templateName}" (new wamid: ${fallbackResult.whatsappMessageId})`
+        )
+        await supabaseAdmin()
+          .from('messages')
+          .update({
+            content_type: 'template',
+            template_name: fallbackResult.templateName ?? null,
+            message_id: fallbackResult.whatsappMessageId,
+            status: 'sent',
+            error_code: null,
+            error_title: null,
+            error_details: null,
+          })
+          .eq('id', msgRow.id)
+      } catch (fallbackErr) {
+        console.warn(
+          `[webhook] 131047 template fallback failed for ${status.recipient_id}:`,
+          fallbackErr
+        )
+      }
+    }
+
     if (accountId) {
       await dispatchWebhookEvent(
         supabaseAdmin(),

@@ -258,9 +258,13 @@ export function ProfileForm() {
         throw new Error(data.error || 'Failed to forward conversations');
       }
       if (data.forwarded > 0) {
-        toast.success(`Forwarded ${data.forwarded} conversation(s) to ${phone.trim()}`);
+        toast.success(
+          `Forwarded ${data.forwarded} eligible client conversation(s) one by one to ${phone.trim()}`,
+        );
       } else {
-        toast.info('No active or pending workflow conversations to forward right now.');
+        toast.info(
+          'No new unsent client conversations found (all previous client conversations have already been sent).',
+        );
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to forward');
@@ -271,10 +275,10 @@ export function ProfileForm() {
 
   const joined = user?.created_at
     ? new Date(user.created_at).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
     : '—';
 
   return (
@@ -286,207 +290,207 @@ export function ProfileForm() {
       <form onSubmit={onSubmit} className="space-y-4">
         <Card>
           <CardContent className="space-y-6">
-          {/* Avatar row */}
-          <div className="flex flex-wrap items-center gap-5">
-            <Avatar size="lg" className="size-16">
-              {currentAvatar ? (
-                <AvatarImage src={currentAvatar} alt={fullName || t('avatarAlt')} />
-              ) : null}
-              <AvatarFallback className="bg-primary/10 text-base text-primary">
-                {initial}
-              </AvatarFallback>
-            </Avatar>
+            {/* Avatar row */}
+            <div className="flex flex-wrap items-center gap-5">
+              <Avatar size="lg" className="size-16">
+                {currentAvatar ? (
+                  <AvatarImage src={currentAvatar} alt={fullName || t('avatarAlt')} />
+                ) : null}
+                <AvatarFallback className="bg-primary/10 text-base text-primary">
+                  {initial}
+                </AvatarFallback>
+              </Avatar>
 
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="hidden"
-                onChange={onPickFile}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={saving}
-              >
-                <Upload className="size-4" />
-                {currentAvatar ? t('changePhoto') : t('uploadPhoto')}
-              </Button>
-              {currentAvatar && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={onRemoveAvatar}
-                  disabled={saving}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <Trash2 className="size-4" />
-                  {t('remove')}
-                </Button>
-              )}
-              <p className="w-full text-xs text-muted-foreground">
-                {t('photoHint')}
-              </p>
-            </div>
-          </div>
-
-          {/* Name */}
-          <div className="space-y-2">
-            <Label htmlFor="profile-full-name" className="text-foreground">
-              {t('displayName')}
-            </Label>
-            <Input
-              id="profile-full-name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder={t('fullNamePlaceholder')}
-              maxLength={120}
-              disabled={saving}
-              required
-            />
-          </div>
-
-          {/* Email */}
-          <div className="space-y-2">
-            <Label htmlFor="profile-email" className="text-foreground">
-              {t('email')}
-            </Label>
-            <Input
-              id="profile-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={saving}
-              required
-            />
-            {emailChangePending && (
-              <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                <Mail className="mt-0.5 size-3.5 shrink-0" />
-                <span>
-                  {t.rich('emailChangeHint', { 
-                    oldEmail: profile?.email || '', 
-                    newEmail: email,
-                    bold: (chunks: React.ReactNode) => <strong>{chunks}</strong>
-                  })}
-                </span>
-              </p>
-            )}
-          </div>
-
-          {/* WhatsApp Contact Number & Conversation Forwarding Interval */}
-          <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
-            <div>
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Phone className="size-4 text-primary" />
-                WhatsApp Lead &amp; Conversation Forwarding
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Add your WhatsApp contact number to automatically receive complete client conversations, client details (name &amp; phone), and all workflow answers (including <strong>Property Inquiry &amp; Site Visit</strong>).
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="profile-phone" className="text-foreground">
-                  WhatsApp Contact Number
-                </Label>
-                <Input
-                  id="profile-phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="e.g. +91 98765 43210"
-                  maxLength={25}
-                  disabled={saving}
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onPickFile}
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Include country code (e.g. <code>919876543210</code> or <code>+919876543210</code>).
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="profile-forward-interval" className="flex items-center gap-1.5 text-foreground">
-                  <Clock className="size-3.5 text-muted-foreground" />
-                  Forward Interval (Admin Setting)
-                </Label>
-                <Select
-                  value={String(forwardInterval)}
-                  onValueChange={(v) => setForwardInterval(normalizeForwardInterval(v))}
-                  disabled={saving}
-                >
-                  <SelectTrigger id="profile-forward-interval" className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="30">Every 30 Minutes</SelectItem>
-                    <SelectItem value="60">Every 1 Hour (Default)</SelectItem>
-                    <SelectItem value="120">Every 2 Hours</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Forwards complete conversation &amp; client answers after this time from the client&apos;s first message.
-                </p>
-              </div>
-            </div>
-
-            {profile?.phone && (
-              <div className="flex items-center justify-between border-t border-border/60 pt-3">
-                <span className="text-xs text-muted-foreground">
-                  Active forwarding to <strong>{profile.phone}</strong> ({forwardInterval === 30 ? '30 minutes' : forwardInterval === 120 ? '2 hours' : '1 hour'} interval)
-                </span>
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  onClick={onForwardNow}
-                  disabled={forwardingNow || saving || dirty}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={saving}
                 >
-                  {forwardingNow ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Send className="size-3.5" />
-                  )}
-                  Forward Recent Now
+                  <Upload className="size-4" />
+                  {currentAvatar ? t('changePhoto') : t('uploadPhoto')}
                 </Button>
+                {currentAvatar && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onRemoveAvatar}
+                    disabled={saving}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Trash2 className="size-4" />
+                    {t('remove')}
+                  </Button>
+                )}
+                <p className="w-full text-xs text-muted-foreground">
+                  {t('photoHint')}
+                </p>
               </div>
+            </div>
+
+            {/* Name */}
+            <div className="space-y-2">
+              <Label htmlFor="profile-full-name" className="text-foreground">
+                {t('displayName')}
+              </Label>
+              <Input
+                id="profile-full-name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder={t('fullNamePlaceholder')}
+                maxLength={120}
+                disabled={saving}
+                required
+              />
+            </div>
+
+            {/* Email */}
+            <div className="space-y-2">
+              <Label htmlFor="profile-email" className="text-foreground">
+                {t('email')}
+              </Label>
+              <Input
+                id="profile-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={saving}
+                required
+              />
+              {emailChangePending && (
+                <p className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                  <Mail className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    {t.rich('emailChangeHint', {
+                      oldEmail: profile?.email || '',
+                      newEmail: email,
+                      bold: (chunks: React.ReactNode) => <strong>{chunks}</strong>
+                    })}
+                  </span>
+                </p>
+              )}
+            </div>
+
+            {/* WhatsApp Contact Number & Conversation Forwarding Interval */}
+            <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Phone className="size-4 text-primary" />
+                  WhatsApp Lead &amp; Conversation Forwarding
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Add your WhatsApp contact number to automatically receive complete client conversations, client details (name &amp; phone), and all workflow answers (including <strong>Property Inquiry &amp; Site Visit</strong>).
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="profile-phone" className="text-foreground">
+                    WhatsApp Contact Number
+                  </Label>
+                  <Input
+                    id="profile-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g. +91 98765 43210"
+                    maxLength={25}
+                    disabled={saving}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Include country code (e.g. <code>919876543210</code> or <code>+919876543210</code>).
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="profile-forward-interval" className="flex items-center gap-1.5 text-foreground">
+                    <Clock className="size-3.5 text-muted-foreground" />
+                    Forward Interval (Admin Setting)
+                  </Label>
+                  <Select
+                    value={String(forwardInterval)}
+                    onValueChange={(v) => setForwardInterval(normalizeForwardInterval(v))}
+                    disabled={saving}
+                  >
+                    <SelectTrigger id="profile-forward-interval" className="bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="30">Every 30 Minutes</SelectItem>
+                      <SelectItem value="60">Every 1 Hour (Default)</SelectItem>
+                      <SelectItem value="120">Every 2 Hours</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Forwards complete conversation &amp; client answers after this time from the client&apos;s first message.
+                  </p>
+                </div>
+              </div>
+
+              {profile?.phone && (
+                <div className="flex items-center justify-between border-t border-border/60 pt-3">
+                  <span className="text-xs text-muted-foreground">
+                    Active forwarding to <strong>{profile.phone}</strong> ({forwardInterval === 30 ? '30 minutes' : forwardInterval === 120 ? '2 hours' : '1 hour'} interval)
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onForwardNow}
+                    disabled={forwardingNow || saving || dirty}
+                  >
+                    {forwardingNow ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Send className="size-3.5" />
+                    )}
+                    Forward Recent Now
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Read-only block */}
+            <div className="rounded-lg border border-border bg-muted p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {t('accountDetails')}
+              </p>
+              <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-muted-foreground">{t('role')}</dt>
+                  <dd className="mt-0.5 font-mono text-foreground">
+                    {profile?.role ?? 'user'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('joined')}</dt>
+                  <dd className="mt-0.5 text-foreground">{joined}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-muted-foreground">{t('userId')}</dt>
+                  <dd className="mt-0.5 break-all font-mono text-xs text-muted-foreground">
+                    {user?.id ?? '—'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            {!profile && (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <CircleAlert className="size-4" />
+                {t('loading')}
+              </p>
             )}
-          </div>
 
-          {/* Read-only block */}
-          <div className="rounded-lg border border-border bg-muted p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {t('accountDetails')}
-            </p>
-            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">{t('role')}</dt>
-                <dd className="mt-0.5 font-mono text-foreground">
-                  {profile?.role ?? 'user'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('joined')}</dt>
-                <dd className="mt-0.5 text-foreground">{joined}</dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-muted-foreground">{t('userId')}</dt>
-                <dd className="mt-0.5 break-all font-mono text-xs text-muted-foreground">
-                  {user?.id ?? '—'}
-                </dd>
-              </div>
-            </dl>
-          </div>
-
-          {!profile && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CircleAlert className="size-4" />
-              {t('loading')}
-            </p>
-          )}
-
-        </CardContent>
+          </CardContent>
         </Card>
 
         <div className="flex justify-end">
