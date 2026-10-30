@@ -22,6 +22,7 @@ import {
   Sparkles,
   UserCheck,
   UserPlus,
+  X,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -85,6 +86,7 @@ export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<NotificationFilterTab>("all");
   const [sendingKeys, setSendingKeys] = useState<Record<string, boolean>>({});
   const [sentKeys, setSentKeys] = useState<Record<string, string>>({});
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
   // Timestamp state used so every calculation uses the current live date on the spot
   const [nowDate, setNowDate] = useState<Date>(() => new Date());
 
@@ -345,6 +347,40 @@ export default function NotificationsPage() {
     });
   }, [investors, enrichedNotifications, nowDate]);
 
+  const deleteNotification = useCallback(
+    async (e: React.MouseEvent, notificationId?: string, cardKey?: string) => {
+      e.stopPropagation();
+
+      if (cardKey) {
+        setDismissedKeys((prev) => new Set(prev).add(cardKey));
+      }
+      if (notificationId) {
+        setNotifications(
+          (prev) => prev?.filter((n) => n.id !== notificationId) ?? prev,
+        );
+        try {
+          const res = await fetch(
+            `/api/notifications?id=${encodeURIComponent(notificationId)}`,
+            { method: "DELETE" },
+          );
+          if (!res.ok) {
+            const supabase = createClient();
+            await supabase
+              .from("notifications")
+              .delete()
+              .eq("id", notificationId);
+          }
+          toast.success("Notification deleted");
+        } catch {
+          toast.error("Failed to delete notification");
+        }
+      } else {
+        toast.success("Notification removed");
+      }
+    },
+    [],
+  );
+
   const markRead = useCallback(
     async (id: string) => {
       setNotifications(
@@ -564,6 +600,7 @@ export default function NotificationsPage() {
   };
 
   const renderRecipientCard = (item: DirectRecipientItem) => {
+    if (dismissedKeys.has(item.key)) return null;
     const isSending = !!sendingKeys[item.key];
     const sentLabel = sentKeys[item.key];
     const EntityIcon = item.entityType === "investor" ? Landmark : UserCheck;
@@ -688,6 +725,18 @@ export default function NotificationsPage() {
                 <MessageSquare className="size-3.5" />
               </Button>
             )}
+
+            <button
+              type="button"
+              title="Delete notification"
+              aria-label="Delete notification"
+              onClick={(e) =>
+                deleteNotification(e, item.notificationId, item.key)
+              }
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-card text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+            >
+              <X className="size-4" />
+            </button>
           </div>
         </div>
       </li>
@@ -977,86 +1026,100 @@ export default function NotificationsPage() {
                             </div>
                           </div>
 
-                          {hasRecipient && (
-                            <div
-                              className="flex items-center gap-2 self-end sm:self-center shrink-0"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Button
-                                type="button"
-                                size="sm"
-                                disabled={isSending}
-                                onClick={(e) =>
-                                  handleSendWhatsAppNotification(e, {
-                                    key: rowKey,
-                                    notificationId: n.id,
-                                    entityType:
-                                      n.recipientType ||
-                                      (n.entity_type === "investor" ||
-                                      n.entity_type === "client"
-                                        ? n.entity_type
-                                        : undefined),
-                                    entityId:
-                                      n.recipientEntityId || n.entity_id,
-                                    phone: n.recipientPhone,
-                                    name: n.recipientName,
-                                    message:
-                                      n.suggestedWhatsAppMessage ||
-                                      n.liveBody ||
-                                      n.liveTitle,
-                                    flatDetails: n.flatDetails,
-                                    endDate: n.endDate,
-                                    daysStatusLabel: n.daysStatusLabel,
-                                  })
-                                }
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm"
-                              >
-                                {isSending ? (
-                                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                                ) : sentLabel ? (
-                                  <Check className="size-3.5 mr-1.5" />
-                                ) : (
-                                  <Send className="size-3.5 mr-1.5" />
-                                )}
-                                {isSending
-                                  ? "Sending..."
-                                  : sentLabel
-                                    ? sentLabel
-                                    : "Send Notification"}
-                              </Button>
-
-                              {n.recipientPhone && (
+                          <div
+                            className="flex items-center gap-2 self-end sm:self-center shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {hasRecipient && (
+                              <>
                                 <Button
                                   type="button"
                                   size="sm"
-                                  variant="outline"
-                                  title="Open in WhatsApp"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const clean = (
-                                      n.recipientPhone || ""
-                                    ).replace(/[^0-9]/g, "");
-                                    const normalized =
-                                      clean.length === 10 &&
-                                      /^[6-9]\d{9}$/.test(clean)
-                                        ? `91${clean}`
-                                        : clean;
-                                    const msg =
-                                      n.suggestedWhatsAppMessage ||
-                                      n.liveBody ||
-                                      n.liveTitle;
-                                    window.open(
-                                      `https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`,
-                                      "_blank",
-                                    );
-                                  }}
-                                  className="text-xs px-2.5"
+                                  disabled={isSending}
+                                  onClick={(e) =>
+                                    handleSendWhatsAppNotification(e, {
+                                      key: rowKey,
+                                      notificationId: n.id,
+                                      entityType:
+                                        n.recipientType ||
+                                        (n.entity_type === "investor" ||
+                                        n.entity_type === "client"
+                                          ? n.entity_type
+                                          : undefined),
+                                      entityId:
+                                        n.recipientEntityId || n.entity_id,
+                                      phone: n.recipientPhone,
+                                      name: n.recipientName,
+                                      message:
+                                        n.suggestedWhatsAppMessage ||
+                                        n.liveBody ||
+                                        n.liveTitle,
+                                      flatDetails: n.flatDetails,
+                                      endDate: n.endDate,
+                                      daysStatusLabel: n.daysStatusLabel,
+                                    })
+                                  }
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm"
                                 >
-                                  <MessageSquare className="size-3.5" />
+                                  {isSending ? (
+                                    <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                                  ) : sentLabel ? (
+                                    <Check className="size-3.5 mr-1.5" />
+                                  ) : (
+                                    <Send className="size-3.5 mr-1.5" />
+                                  )}
+                                  {isSending
+                                    ? "Sending..."
+                                    : sentLabel
+                                      ? sentLabel
+                                      : "Send Notification"}
                                 </Button>
-                              )}
-                            </div>
-                          )}
+
+                                {n.recipientPhone && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    title="Open in WhatsApp"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const clean = (
+                                        n.recipientPhone || ""
+                                      ).replace(/[^0-9]/g, "");
+                                      const normalized =
+                                        clean.length === 10 &&
+                                        /^[6-9]\d{9}$/.test(clean)
+                                          ? `91${clean}`
+                                          : clean;
+                                      const msg =
+                                        n.suggestedWhatsAppMessage ||
+                                        n.liveBody ||
+                                        n.liveTitle;
+                                      window.open(
+                                        `https://wa.me/${normalized}?text=${encodeURIComponent(msg)}`,
+                                        "_blank",
+                                      );
+                                    }}
+                                    className="text-xs px-2.5"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                  </Button>
+                                )}
+                              </>
+                            )}
+
+                            <button
+                              type="button"
+                              title="Delete notification"
+                              aria-label="Delete notification"
+                              onClick={(e) =>
+                                deleteNotification(e, n.id, rowKey)
+                              }
+                              className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-card text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          </div>
                         </div>
                       </li>
                     );

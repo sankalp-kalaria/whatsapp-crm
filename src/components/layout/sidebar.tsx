@@ -12,6 +12,7 @@ import {
   Bot,
   Building2,
   Crown,
+  Filter,
   GitBranch,
   Landmark,
   LayoutDashboard,
@@ -95,6 +96,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
+  { href: "/filter-leads", labelKey: "filterLeads", icon: Filter },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
   { href: "/contacts", labelKey: "contacts", icon: Users },
   { href: "/investors", labelKey: "investors", icon: Landmark },

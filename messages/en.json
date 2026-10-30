@@ -21,6 +21,7 @@
     "primaryNav": "Primary",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
+    "filterLeads": "Filter Leads",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "investors": "Investors",
@@ -49,6 +50,7 @@
   "Header": {
     "dashboard": "Dashboard",
     "inbox": "Inbox",
+    "filterLeads": "Filter Leads",
     "notifications": "Notifications",
     "contacts": "Contacts",
     "investors": "Investors",

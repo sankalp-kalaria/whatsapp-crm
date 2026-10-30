@@ -21,6 +21,7 @@
     "primaryNav": "기본 메뉴",
     "dashboard": "대시보드",
     "inbox": "인박스",
+    "filterLeads": "리드 필터 (Filter Leads)",
     "notifications": "알림",
     "contacts": "연락처",
     "investors": "투자자 (소유자)",
@@ -49,6 +50,7 @@
   "Header": {
     "dashboard": "대시보드",
     "inbox": "인박스",
+    "filterLeads": "리드 필터 (Filter Leads)",
     "notifications": "알림",
     "contacts": "연락처",
     "investors": "투자자 (소유자)",
