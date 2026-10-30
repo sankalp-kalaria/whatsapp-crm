@@ -251,96 +251,124 @@ export function ClientForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border text-foreground">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-            <UserCheck className="size-5 text-primary" />
-            {client ? 'Edit Client Details' : 'Add New Client (Tenant / Buyer)'}
+      <DialogContent className="w-[95vw] max-w-4xl sm:max-w-4xl max-h-[92vh] overflow-y-auto bg-card border-border text-foreground p-6 sm:p-8 gap-6">
+        <DialogHeader className="border-b border-border pb-4">
+          <DialogTitle className="flex items-center gap-2.5 text-2xl font-bold">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <UserCheck className="size-5" />
+            </div>
+            {client ? 'Edit Client (Tenant / Buyer) Details' : 'Add New Client (Tenant / Buyer)'}
           </DialogTitle>
-          <DialogDescription className="text-muted-foreground text-xs">
+          <DialogDescription className="text-muted-foreground text-sm mt-1">
             Capture tenant credentials, Aadhar/PAN ID proofs, linked flat owner (investor), and agreement schedule.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSave} className="space-y-4 pt-2">
-          {/* Identity & Contact */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
-                Client Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Vikram Verma"
-                required
-              />
+        <form onSubmit={handleSave} className="space-y-6">
+          {/* Section 1: Identity & Contact */}
+          <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <UserCheck className="size-4 text-primary" />
+                Client Contact & Tenancy Status
+              </span>
+              <span className="text-xs text-muted-foreground">Required fields marked with *</span>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1">
-                <Phone className="size-3 text-muted-foreground" />
-                Phone Number <span className="text-destructive">*</span>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">
+                  Client Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Vikram Verma"
+                  className="h-10 text-sm"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Phone className="size-3.5 text-muted-foreground" />
+                  Phone Number <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. +91 9988776655"
+                  className="h-10 text-sm"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Mail className="size-3.5 text-muted-foreground" />
+                  Email Address
+                </Label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="e.g. vikram@example.com"
+                  className="h-10 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Client Status</Label>
+                <Select
+                  value={status}
+                  onValueChange={(val) => {
+                    if (val) setStatus(val as ClientStatus);
+                  }}
+                >
+                  <SelectTrigger className="h-10 text-sm w-full">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="in_process">In Process</SelectItem>
+                    <SelectItem value="agreement_signed">Agreement Signed</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <MapPin className="size-3.5 text-muted-foreground" />
+                Client Permanent Address
               </Label>
               <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. +91 9988776655"
-                required
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="e.g. 104, Sunrise Residency, Vadodara, Gujarat"
+                className="h-10 text-sm"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1">
-                <Mail className="size-3 text-muted-foreground" />
-                Email Address
-              </Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. vikram@example.com"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Client Status</Label>
-              <Select
-                value={status}
-                onValueChange={(val) => {
-                  if (val) setStatus(val as ClientStatus);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="in_process">In Process</SelectItem>
-                  <SelectItem value="agreement_signed">Agreement Signed</SelectItem>
-                  <SelectItem value="expired">Expired</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* ID Proof Section */}
-          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          {/* Section 2: ID Proof & KYC */}
+          <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b border-border/60 pb-2.5">
               <CreditCard className="size-4 text-primary" />
               Identity Proof & KYC Details
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Proof Document Type</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Proof Document Type</Label>
                 <Select
                   value={idProofType}
                   onValueChange={(val) => {
                     if (val) setIdProofType(val);
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10 text-sm w-full">
                     <SelectValue placeholder="Select ID Proof" />
                   </SelectTrigger>
                   <SelectContent>
@@ -353,33 +381,35 @@ export function ClientForm({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Document / Card Number</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Document / Card Number</Label>
                 <Input
                   value={idProofNumber}
                   onChange={(e) => setIdProofNumber(e.target.value)}
                   placeholder="e.g. 1234 5678 9012 (Aadhar) or ABCDE1234F (PAN)"
+                  className="h-10 text-sm"
                 />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Document Details / Verification Notes</Label>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Document Details / Verification Notes</Label>
               <Input
                 value={idProofDetails}
                 onChange={(e) => setIdProofDetails(e.target.value)}
                 placeholder="e.g. Verified original physical card, signed copy on file"
+                className="h-10 text-sm"
               />
             </div>
           </div>
 
-          {/* Linked Investor (Flat Owner) */}
-          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          {/* Section 3: Linked Investor (Flat Owner) */}
+          <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b border-border/60 pb-2.5">
               <Landmark className="size-4 text-primary" />
-              Linked Investor (Flat Owner)
+              Linked Investor (Flat Owner & Unit)
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">
                 Select Owner & Flat
               </Label>
               <Select
@@ -411,7 +441,7 @@ export function ClientForm({
                   }
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-10 text-sm w-full">
                   <SelectValue
                     placeholder={loadingInvestors ? 'Loading investors...' : 'Choose Investor'}
                   />
@@ -426,120 +456,115 @@ export function ClientForm({
                 </SelectContent>
               </Select>
               {autoFilledFromInvestor && (
-                <p className="text-[11px] flex items-center gap-1 text-emerald-400 font-medium">
-                  <Sparkles className="size-3" />
+                <p className="text-xs flex items-center gap-1.5 text-emerald-400 font-medium pt-1">
+                  <Sparkles className="size-3.5" />
                   Agreement details auto-filled from investor record. You can still edit them below.
                 </p>
               )}
               {!autoFilledFromInvestor && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground pt-1">
                   Associating this client with an investor allows tracking tenant-owner relationships and agreement renewals.
                 </p>
               )}
             </div>
           </div>
 
-          {/* Agreement & Financials */}
-          <div className={`rounded-lg border p-3 space-y-3 transition-colors ${
+          {/* Section 4: Agreement & Financials */}
+          <div className={`rounded-xl border p-4 sm:p-5 space-y-4 transition-colors ${
             autoFilledFromInvestor
               ? 'border-emerald-500/40 bg-emerald-500/5'
-              : 'border-border/80 bg-muted/20'
+              : 'border-border/80 bg-muted/15'
           }`}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
               <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <Calendar className="size-4 text-primary" />
                 Agreement & Tenancy Schedule
               </div>
               {autoFilledFromInvestor && (
-                <span className="text-[10px] flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5 font-semibold">
-                  <Sparkles className="size-2.5" />
+                <span className="text-xs flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-0.5 font-semibold">
+                  <Sparkles className="size-3" />
                   Auto-filled
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Agreement Start Date</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Agreement Start Date</Label>
                 <Input
                   type="date"
                   value={agreementStartDate}
                   onChange={(e) => setAgreementStartDate(e.target.value)}
+                  className="h-10 text-sm"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Agreement End Date</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Agreement End Date</Label>
                 <Input
                   type="date"
                   value={agreementEndDate}
                   onChange={(e) => setAgreementEndDate(e.target.value)}
+                  className="h-10 text-sm"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Monthly Rent (₹)</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Monthly Rent (₹)</Label>
                 <Input
                   type="number"
                   value={rentAmount}
                   onChange={(e) => setRentAmount(e.target.value)}
                   placeholder="e.g. 20000"
+                  className="h-10 text-sm"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Security Deposit Held (₹)</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Security Deposit Held (₹)</Label>
                 <Input
                   type="number"
                   value={depositAmount}
                   onChange={(e) => setDepositAmount(e.target.value)}
                   placeholder="e.g. 50000"
+                  className="h-10 text-sm"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Agreement Terms & Details</Label>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Agreement Terms & Details</Label>
               <Textarea
-                rows={2}
+                rows={3}
                 value={agreementDetails}
                 onChange={(e) => setAgreementDetails(e.target.value)}
                 placeholder="e.g. Registered rent agreement with lock-in period of 6 months."
+                className="text-sm"
               />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1">
-              <MapPin className="size-3 text-muted-foreground" />
-              Client Permanent Address
-            </Label>
-            <Input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g. 104, Sunrise Residency, Vadodara, Gujarat"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Notes & Remarks</Label>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Notes & Remarks</Label>
             <Textarea
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Remarks regarding tenant references, family members, or move-in details..."
+              className="text-sm"
             />
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-border">
+          <DialogFooter className="gap-3 pt-4 border-t border-border -mx-6 -mb-6 sm:-mx-8 sm:-mb-8 px-6 py-4 sm:px-8">
             <Button
               type="button"
               variant="outline"
+              size="lg"
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" size="lg" disabled={saving} className="min-w-[160px]">
               {saving && <Loader2 className="size-4 mr-2 animate-spin" />}
               {client ? 'Update Client' : 'Save Client'}
             </Button>

@@ -151,205 +151,230 @@ export function InvestorForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border text-foreground">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-            <Landmark className="size-5 text-primary" />
-            {investor ? 'Edit Investor Details' : 'Add New Investor (Flat Owner)'}
+      <DialogContent className="w-[95vw] max-w-4xl sm:max-w-4xl max-h-[92vh] overflow-y-auto bg-card border-border text-foreground p-6 sm:p-8 gap-6">
+        <DialogHeader className="border-b border-border pb-4">
+          <DialogTitle className="flex items-center gap-2.5 text-2xl font-bold">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Landmark className="size-5" />
+            </div>
+            {investor ? 'Edit Investor (Flat Owner) Details' : 'Add New Investor (Flat Owner)'}
           </DialogTitle>
-          <DialogDescription className="text-muted-foreground text-xs">
+          <DialogDescription className="text-muted-foreground text-sm mt-1">
             Capture flat purchase details, rental status, and agreement expiry dates for automated tracking and notifications.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSave} className="space-y-4 pt-2">
-          {/* Personal Info */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
-                Investor Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Ramesh Shah"
-                required
-              />
+        <form onSubmit={handleSave} className="space-y-6">
+          {/* Section 1: Personal & Contact Information */}
+          <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
+              <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Landmark className="size-4 text-primary" />
+                Owner Contact & Status
+              </span>
+              <span className="text-xs text-muted-foreground">Required fields marked with *</span>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1">
-                <Phone className="size-3 text-muted-foreground" />
-                Phone Number <span className="text-destructive">*</span>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">
+                  Investor Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Ramesh Shah"
+                  className="h-10 text-sm"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Phone className="size-3.5 text-muted-foreground" />
+                  Phone Number <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. +91 9876543210"
+                  className="h-10 text-sm"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Mail className="size-3.5 text-muted-foreground" />
+                  Email Address
+                </Label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="e.g. ramesh@example.com"
+                  className="h-10 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Rental Status</Label>
+                <Select
+                  value={rentalStatus}
+                  onValueChange={(val) => {
+                    if (val) setRentalStatus(val as InvestorRentalStatus);
+                  }}
+                >
+                  <SelectTrigger className="h-10 text-sm w-full">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending_for_rent">Pending for Rent</SelectItem>
+                    <SelectItem value="rented">Rented</SelectItem>
+                    <SelectItem value="vacant">Vacant</SelectItem>
+                    <SelectItem value="self_occupied">Self Occupied</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <MapPin className="size-3.5 text-muted-foreground" />
+                Investor Residence Address
               </Label>
               <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. +91 9876543210"
-                required
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="e.g. B-12, Royal Palms, Satellite, Ahmedabad"
+                className="h-10 text-sm"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1">
-                <Mail className="size-3 text-muted-foreground" />
-                Email Address
-              </Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. ramesh@example.com"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Rental Status</Label>
-              <Select
-                value={rentalStatus}
-                onValueChange={(val) => {
-                  if (val) setRentalStatus(val as InvestorRentalStatus);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending_for_rent">Pending for Rent</SelectItem>
-                  <SelectItem value="rented">Rented</SelectItem>
-                  <SelectItem value="vacant">Vacant</SelectItem>
-                  <SelectItem value="self_occupied">Self Occupied</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1">
-              <MapPin className="size-3 text-muted-foreground" />
-              Investor Residence Address
-            </Label>
-            <Input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="e.g. B-12, Royal Palms, Satellite, Ahmedabad"
-            />
-          </div>
-
-          {/* Property / Flat Details */}
-          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          {/* Section 2: Property / Flat Details */}
+          <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground border-b border-border/60 pb-2.5">
               <Building className="size-4 text-primary" />
-              Purchase Flat Details
+              Purchase Flat & Rental Details
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">
-                Flat / Unit Specification
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">
+                Flat / Unit Specification (Wing, Flat No, Building Name, Area)
               </Label>
               <Input
                 value={purchaseFlatDetails}
                 onChange={(e) => setPurchaseFlatDetails(e.target.value)}
                 placeholder="e.g. Flat 502, Tower C, Godrej Garden City (3 BHK, 1450 sqft)"
+                className="h-10 text-sm"
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Expected / Rent Amount (₹)</Label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Expected / Rent Amount (₹)</Label>
                 <Input
                   type="number"
                   value={rentAmount}
                   onChange={(e) => setRentAmount(e.target.value)}
                   placeholder="e.g. 25000"
+                  className="h-10 text-sm"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium flex items-center gap-1">
-                  <Calendar className="size-3 text-muted-foreground" />
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Calendar className="size-3.5 text-muted-foreground" />
                   Rent Start Date
                 </Label>
                 <Input
                   type="date"
                   value={rentStartDate}
                   onChange={(e) => setRentStartDate(e.target.value)}
+                  className="h-10 text-sm"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium flex items-center gap-1">
-                  <Calendar className="size-3 text-muted-foreground" />
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Calendar className="size-3.5 text-muted-foreground" />
                   Rent End Date
                 </Label>
                 <Input
                   type="date"
                   value={rentEndDate}
                   onChange={(e) => setRentEndDate(e.target.value)}
+                  className="h-10 text-sm"
                 />
               </div>
             </div>
           </div>
 
-          {/* Agreement Tracking */}
-          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
-            <div className="flex items-center justify-between">
+          {/* Section 3: Agreement Tracking */}
+          <div className="rounded-xl border border-border/80 bg-muted/15 p-4 sm:p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
               <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <Calendar className="size-4 text-primary" />
                 Agreement & Notification Tracking
               </span>
-              <span className="text-[11px] text-amber-500 font-medium">
-                1-Month Auto Alert
+              <span className="rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-xs text-amber-400 font-medium">
+                1-Month Auto Expiry Alert
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Agreement Start Date</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Agreement Start Date</Label>
                 <Input
                   type="date"
                   value={agreementStartDate}
                   onChange={(e) => setAgreementStartDate(e.target.value)}
+                  className="h-10 text-sm"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">Agreement End Date</Label>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Agreement End Date</Label>
                 <Input
                   type="date"
                   value={agreementEndDate}
                   onChange={(e) => setAgreementEndDate(e.target.value)}
+                  className="h-10 text-sm"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Agreement Details & Terms</Label>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Agreement Details & Terms</Label>
               <Textarea
-                rows={2}
+                rows={3}
                 value={agreementDetails}
                 onChange={(e) => setAgreementDetails(e.target.value)}
                 placeholder="e.g. 11 months registered agreement, 2 months deposit held, 10% annual escalation."
+                className="text-sm"
               />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Internal Notes</Label>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Internal Notes & Preferences</Label>
             <Textarea
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Any specific preference or contact notes..."
+              className="text-sm"
             />
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-border">
+          <DialogFooter className="gap-3 pt-4 border-t border-border -mx-6 -mb-6 sm:-mx-8 sm:-mb-8 px-6 py-4 sm:px-8">
             <Button
               type="button"
               variant="outline"
+              size="lg"
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" size="lg" disabled={saving} className="min-w-[160px]">
               {saving && <Loader2 className="size-4 mr-2 animate-spin" />}
               {investor ? 'Update Investor' : 'Save Investor'}
             </Button>

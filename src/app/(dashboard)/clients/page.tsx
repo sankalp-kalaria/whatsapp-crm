@@ -543,52 +543,66 @@ export default function ClientsPage() {
                     <TableCell className="text-xs text-muted-foreground">
                       {client.agreement_end_date || '-'}
                     </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-foreground"
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          }
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="h-7 px-2.5 text-xs font-medium"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditForm(client);
+                          }}
                         >
-                          <MoreHorizontal className="size-4" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              sendWhatsApp(client.phone, client.name);
-                            }}
+                          <Pencil className="size-3 mr-1" />
+                          Edit
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            }
                           >
-                            <MessageSquare className="size-4 mr-2 text-emerald-400" />
-                            WhatsApp Message
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditForm(client);
-                            }}
-                          >
-                            <Pencil className="size-4 mr-2" />
-                            Edit Client
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              confirmDelete(client);
-                            }}
-                          >
-                            <Trash2 className="size-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <MoreHorizontal className="size-4" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                sendWhatsApp(client.phone, client.name);
+                              }}
+                            >
+                              <MessageSquare className="size-4 mr-2 text-emerald-400" />
+                              WhatsApp Message
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditForm(client);
+                              }}
+                            >
+                              <Pencil className="size-4 mr-2" />
+                              Edit Client
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                confirmDelete(client);
+                              }}
+                            >
+                              <Trash2 className="size-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

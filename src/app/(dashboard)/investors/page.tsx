@@ -544,55 +544,69 @@ export default function InvestorsPage() {
                     <TableCell className="text-muted-foreground text-xs hidden md:table-cell">
                       {inv.rent_amount ? `₹${inv.rent_amount.toLocaleString('en-IN')}` : '-'}
                     </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-foreground"
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          }
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="h-7 px-2.5 text-xs font-medium"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditForm(inv);
+                          }}
                         >
-                          <MoreHorizontal className="size-4" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              sendWhatsAppNotification(
-                                inv.phone,
-                                `Hello ${inv.name}, updating you regarding flat ${inv.purchase_flat_details || ''}.`
-                              );
-                            }}
+                          <Pencil className="size-3 mr-1" />
+                          Edit
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-foreground"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            }
                           >
-                            <MessageSquare className="size-4 mr-2 text-emerald-400" />
-                            WhatsApp Message
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditForm(inv);
-                            }}
-                          >
-                            <Pencil className="size-4 mr-2" />
-                            Edit Details
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              confirmDelete(inv);
-                            }}
-                          >
-                            <Trash2 className="size-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <MoreHorizontal className="size-4" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                sendWhatsAppNotification(
+                                  inv.phone,
+                                  `Hello ${inv.name}, updating you regarding flat ${inv.purchase_flat_details || ''}.`
+                                );
+                              }}
+                            >
+                              <MessageSquare className="size-4 mr-2 text-emerald-400" />
+                              WhatsApp Message
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditForm(inv);
+                              }}
+                            >
+                              <Pencil className="size-4 mr-2" />
+                              Edit Details
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                confirmDelete(inv);
+                              }}
+                            >
+                              <Trash2 className="size-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

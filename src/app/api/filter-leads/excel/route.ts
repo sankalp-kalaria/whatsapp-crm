@@ -269,8 +269,9 @@ export async function PUT(request: Request) {
           .select('id')
           .single();
         if (newConv?.id) {
-          convId = newConv.id;
-          convByContactId.set(contactId, convId);
+          const createdConvId: string = String(newConv.id);
+          convId = createdConvId;
+          convByContactId.set(contactId, createdConvId);
         }
       }
 

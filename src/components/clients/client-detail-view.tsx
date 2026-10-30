@@ -100,24 +100,26 @@ export function ClientDetailView({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border text-foreground">
-        <DialogHeader>
-          <div className="flex items-center justify-between pr-4">
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
-              <UserCheck className="size-5 text-primary" />
+      <DialogContent className="w-[95vw] max-w-3xl sm:max-w-3xl max-h-[90vh] overflow-y-auto bg-card border-border text-foreground p-6 sm:p-8 gap-5">
+        <DialogHeader className="border-b border-border pb-4">
+          <div className="flex items-center justify-between pr-6">
+            <DialogTitle className="flex items-center gap-2.5 text-2xl font-bold">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                <UserCheck className="size-5" />
+              </div>
               {client.name}
             </DialogTitle>
             <Button
-              variant="outline"
+              variant="default"
               size="sm"
               onClick={() => {
                 onOpenChange(false);
                 onEdit(client);
               }}
-              className="text-xs"
+              className="text-xs font-semibold"
             >
-              <Pencil className="size-3.5 mr-1" />
-              Edit
+              <Pencil className="size-3.5 mr-1.5" />
+              Edit Client Details
             </Button>
           </div>
         </DialogHeader>
