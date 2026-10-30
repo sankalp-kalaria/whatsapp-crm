@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { decrypt } from '@/lib/whatsapp/encryption';
-import { sendWhatsAppTextMessage } from '@/lib/whatsapp/meta-api';
+import { sendTextMessage } from '@/lib/whatsapp/meta-api';
 
 function supabaseAdmin() {
   return createClient(
@@ -106,12 +106,12 @@ export async function POST(request: Request) {
           budget_range || 'Standard'
         }\n\nOur property specialist will be available to assist you during your visit. See you soon!`;
 
-        const metaRes = await sendWhatsAppTextMessage(
-          config.phone_number_id,
-          token,
-          resolvedPhone,
-          confirmText
-        );
+        const metaRes = await sendTextMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken: token,
+          to: resolvedPhone,
+          text: confirmText,
+        });
 
         // Record automated reply message in DB
         await db.from('messages').insert({
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
           sender_type: 'user',
           content_type: 'text',
           content_text: confirmText,
-          message_id: metaRes.messages?.[0]?.id || null,
+          message_id: metaRes.messageId || null,
           status: 'delivered',
         });
       } catch (waErr) {
