@@ -216,6 +216,8 @@ export interface Notification {
   entity_id?: string;
   /** Who triggered it. Null when an automation/system assigned it. */
   actor_user_id?: string;
+  status?: 'active' | 'deleted';
+  deleted_at?: string | null;
   title: string;
   body?: string;
   read_at?: string;

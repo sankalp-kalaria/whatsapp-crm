@@ -18,8 +18,10 @@ import {
   MessageSquare,
   Phone,
   RefreshCw,
+  RotateCcw,
   Send,
   Sparkles,
+  Trash2,
   UserCheck,
   UserPlus,
   X,
@@ -44,7 +46,7 @@ const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
   rent_expiring: Clock,
 };
 
-type NotificationFilterTab = "all" | "clients" | "investors";
+type NotificationFilterTab = "all" | "clients" | "investors" | "deleted";
 
 interface DirectRecipientItem {
   key: string;
@@ -87,6 +89,7 @@ export default function NotificationsPage() {
   const [sendingKeys, setSendingKeys] = useState<Record<string, boolean>>({});
   const [sentKeys, setSentKeys] = useState<Record<string, string>>({});
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+  const [restoringIds, setRestoringIds] = useState<Record<string, boolean>>({});
   // Timestamp state used so every calculation uses the current live date on the spot
   const [nowDate, setNowDate] = useState<Date>(() => new Date());
 
@@ -99,6 +102,7 @@ export default function NotificationsPage() {
       setNowDate(new Date());
 
       // Trigger expiry check so DB notifications are synced with today's date
+      // (check-expiries preserves status = 'deleted' so deleted items never reappear)
       try {
         await fetch("/api/investors/check-expiries");
       } catch {
@@ -112,7 +116,7 @@ export default function NotificationsPage() {
           .select("*")
           .eq("account_id", accountId)
           .order("created_at", { ascending: false })
-          .limit(100),
+          .limit(200),
         supabase
           .from("investors")
           .select("*")
@@ -234,26 +238,88 @@ export default function NotificationsPage() {
   }, [load]);
 
   // On-the-spot recalculated notifications using current date (`nowDate`)
-  const enrichedNotifications: EnrichedNotification[] = useMemo(() => {
+  const allEnrichedNotifications: EnrichedNotification[] = useMemo(() => {
     if (!notifications) return [];
     return notifications.map((n) =>
       recalculateNotificationOnTheSpot(n, investors, clients, nowDate),
     );
   }, [notifications, investors, clients, nowDate]);
 
-  // Build complete on-the-spot Client & Investor items so every client and every investor
-  // has a "Send Notification" button and live days calculation (past or due)
-  const clientNotificationItems: DirectRecipientItem[] = useMemo(() => {
-    return clients.map((cl) => {
-      const built = buildClientExpiryItem(cl, nowDate);
-      const matchingNotif = enrichedNotifications.find(
-        (n) =>
-          (n.recipientType === "client" && n.recipientEntityId === cl.id) ||
-          (n.entity_type === "client" && n.entity_id === cl.id),
-      );
-      const flatName = cl.investor?.purchase_flat_details || "Rented Unit";
+  // Active vs Deleted notifications
+  const enrichedNotifications: EnrichedNotification[] = useMemo(
+    () =>
+      allEnrichedNotifications.filter(
+        (n) => n.status !== "deleted" && !dismissedKeys.has(`notif-${n.id}`),
+      ),
+    [allEnrichedNotifications, dismissedKeys],
+  );
 
-      if (built) {
+  const deletedNotifications: EnrichedNotification[] = useMemo(
+    () =>
+      allEnrichedNotifications
+        .filter((n) => n.status === "deleted")
+        .sort((a, b) => {
+          const da = a.deleted_at || a.created_at;
+          const db = b.deleted_at || b.created_at;
+          return new Date(db).getTime() - new Date(da).getTime();
+        }),
+    [allEnrichedNotifications],
+  );
+
+  // Set of `<entityType>-<entityId>` keys whose notification status is 'deleted'
+  const deletedEntityKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const n of deletedNotifications) {
+      const eType = n.recipientType || n.entity_type;
+      const eId = n.recipientEntityId || n.entity_id;
+      if (eType && eId) {
+        keys.add(`${eType}-${eId}`);
+      }
+    }
+    return keys;
+  }, [deletedNotifications]);
+
+  // Build complete on-the-spot Client & Investor items (excluding soft-deleted ones)
+  const clientNotificationItems: DirectRecipientItem[] = useMemo(() => {
+    return clients
+      .filter(
+        (cl) =>
+          !deletedEntityKeys.has(`client-${cl.id}`) &&
+          !dismissedKeys.has(`client-${cl.id}`),
+      )
+      .map((cl) => {
+        const built = buildClientExpiryItem(cl, nowDate);
+        const matchingNotif = enrichedNotifications.find(
+          (n) =>
+            (n.recipientType === "client" && n.recipientEntityId === cl.id) ||
+            (n.entity_type === "client" && n.entity_id === cl.id),
+        );
+        const flatName = cl.investor?.purchase_flat_details || "Rented Unit";
+
+        if (built) {
+          return {
+            key: `client-${cl.id}`,
+            notificationId: matchingNotif?.id,
+            entityType: "client" as const,
+            entityId: cl.id,
+            name: cl.name,
+            phone: cl.phone,
+            flatDetails: flatName,
+            endDate: built.endDate,
+            daysRemaining: built.daysRemaining,
+            isExpired: built.isExpired,
+            isDueToday: built.isDueToday,
+            daysStatusLabel: built.daysStatusLabel,
+            title: built.notificationTitle,
+            body: built.notificationBody,
+            whatsappMessage: built.suggestedWhatsAppMessage,
+            isUnread: matchingNotif ? !matchingNotif.read_at : false,
+            createdAt:
+              matchingNotif?.created_at || cl.updated_at || cl.created_at,
+          };
+        }
+
+        const defaultMsg = `Hello ${cl.name}, this is an update regarding your tenancy agreement for ${flatName}. Please let us know if you need any assistance.`;
         return {
           key: `client-${cl.id}`,
           notificationId: matchingNotif?.id,
@@ -262,49 +328,58 @@ export default function NotificationsPage() {
           name: cl.name,
           phone: cl.phone,
           flatDetails: flatName,
-          endDate: built.endDate,
-          daysRemaining: built.daysRemaining,
-          isExpired: built.isExpired,
-          isDueToday: built.isDueToday,
-          daysStatusLabel: built.daysStatusLabel,
-          title: built.notificationTitle,
-          body: built.notificationBody,
-          whatsappMessage: built.suggestedWhatsAppMessage,
+          endDate: cl.agreement_end_date,
+          title: `Client Notification: ${cl.name}`,
+          body: `Tenancy status: ${cl.status.replace(/_/g, " ")} • Contact: ${cl.phone}`,
+          whatsappMessage: defaultMsg,
           isUnread: matchingNotif ? !matchingNotif.read_at : false,
-          createdAt: matchingNotif?.created_at || cl.updated_at || cl.created_at,
+          createdAt:
+            matchingNotif?.created_at || cl.updated_at || cl.created_at,
         };
-      }
-
-      const defaultMsg = `Hello ${cl.name}, this is an update regarding your tenancy agreement for ${flatName}. Please let us know if you need any assistance.`;
-      return {
-        key: `client-${cl.id}`,
-        notificationId: matchingNotif?.id,
-        entityType: "client" as const,
-        entityId: cl.id,
-        name: cl.name,
-        phone: cl.phone,
-        flatDetails: flatName,
-        endDate: cl.agreement_end_date,
-        title: `Client Notification: ${cl.name}`,
-        body: `Tenancy status: ${cl.status.replace(/_/g, " ")} • Contact: ${cl.phone}`,
-        whatsappMessage: defaultMsg,
-        isUnread: matchingNotif ? !matchingNotif.read_at : false,
-        createdAt: matchingNotif?.created_at || cl.updated_at || cl.created_at,
-      };
-    });
-  }, [clients, enrichedNotifications, nowDate]);
+      });
+  }, [clients, enrichedNotifications, deletedEntityKeys, dismissedKeys, nowDate]);
 
   const investorNotificationItems: DirectRecipientItem[] = useMemo(() => {
-    return investors.map((inv) => {
-      const built = buildInvestorExpiryItem(inv, nowDate);
-      const matchingNotif = enrichedNotifications.find(
-        (n) =>
-          (n.recipientType === "investor" && n.recipientEntityId === inv.id) ||
-          (n.entity_type === "investor" && n.entity_id === inv.id),
-      );
-      const flatName = inv.purchase_flat_details || "Flat/Property";
+    return investors
+      .filter(
+        (inv) =>
+          !deletedEntityKeys.has(`investor-${inv.id}`) &&
+          !dismissedKeys.has(`investor-${inv.id}`),
+      )
+      .map((inv) => {
+        const built = buildInvestorExpiryItem(inv, nowDate);
+        const matchingNotif = enrichedNotifications.find(
+          (n) =>
+            (n.recipientType === "investor" &&
+              n.recipientEntityId === inv.id) ||
+            (n.entity_type === "investor" && n.entity_id === inv.id),
+        );
+        const flatName = inv.purchase_flat_details || "Flat/Property";
 
-      if (built) {
+        if (built) {
+          return {
+            key: `investor-${inv.id}`,
+            notificationId: matchingNotif?.id,
+            entityType: "investor" as const,
+            entityId: inv.id,
+            name: inv.name,
+            phone: inv.phone,
+            flatDetails: flatName,
+            endDate: built.endDate,
+            daysRemaining: built.daysRemaining,
+            isExpired: built.isExpired,
+            isDueToday: built.isDueToday,
+            daysStatusLabel: built.daysStatusLabel,
+            title: built.notificationTitle,
+            body: built.notificationBody,
+            whatsappMessage: built.suggestedWhatsAppMessage,
+            isUnread: matchingNotif ? !matchingNotif.read_at : false,
+            createdAt:
+              matchingNotif?.created_at || inv.updated_at || inv.created_at,
+          };
+        }
+
+        const defaultMsg = `Hello ${inv.name}, this is an update regarding your property (${flatName}). Please let us know if you have any questions.`;
         return {
           key: `investor-${inv.id}`,
           notificationId: matchingNotif?.id,
@@ -313,73 +388,183 @@ export default function NotificationsPage() {
           name: inv.name,
           phone: inv.phone,
           flatDetails: flatName,
-          endDate: built.endDate,
-          daysRemaining: built.daysRemaining,
-          isExpired: built.isExpired,
-          isDueToday: built.isDueToday,
-          daysStatusLabel: built.daysStatusLabel,
-          title: built.notificationTitle,
-          body: built.notificationBody,
-          whatsappMessage: built.suggestedWhatsAppMessage,
+          endDate: inv.agreement_end_date || inv.rent_end_date,
+          title: `Investor Notification: ${inv.name} (${flatName})`,
+          body: `Rental status: ${inv.rental_status.replace(/_/g, " ")} • Contact: ${inv.phone}`,
+          whatsappMessage: defaultMsg,
           isUnread: matchingNotif ? !matchingNotif.read_at : false,
           createdAt:
             matchingNotif?.created_at || inv.updated_at || inv.created_at,
         };
-      }
+      });
+  }, [
+    investors,
+    enrichedNotifications,
+    deletedEntityKeys,
+    dismissedKeys,
+    nowDate,
+  ]);
 
-      const defaultMsg = `Hello ${inv.name}, this is an update regarding your property (${flatName}). Please let us know if you have any questions.`;
-      return {
-        key: `investor-${inv.id}`,
-        notificationId: matchingNotif?.id,
-        entityType: "investor" as const,
-        entityId: inv.id,
-        name: inv.name,
-        phone: inv.phone,
-        flatDetails: flatName,
-        endDate: inv.agreement_end_date || inv.rent_end_date,
-        title: `Investor Notification: ${inv.name} (${flatName})`,
-        body: `Rental status: ${inv.rental_status.replace(/_/g, " ")} • Contact: ${inv.phone}`,
-        whatsappMessage: defaultMsg,
-        isUnread: matchingNotif ? !matchingNotif.read_at : false,
-        createdAt:
-          matchingNotif?.created_at || inv.updated_at || inv.created_at,
-      };
-    });
-  }, [investors, enrichedNotifications, nowDate]);
-
+  // Soft-delete notification (persists status = 'deleted' in Supabase so it never comes back on refresh)
   const deleteNotification = useCallback(
-    async (e: React.MouseEvent, notificationId?: string, cardKey?: string) => {
+    async (
+      e: React.MouseEvent,
+      params: {
+        notificationId?: string;
+        cardKey?: string;
+        entityType?: "client" | "investor";
+        entityId?: string;
+        title?: string;
+        body?: string;
+      },
+    ) => {
       e.stopPropagation();
 
-      if (cardKey) {
-        setDismissedKeys((prev) => new Set(prev).add(cardKey));
+      const nowIso = new Date().toISOString();
+      if (params.cardKey) {
+        setDismissedKeys((prev) => new Set(prev).add(params.cardKey!));
       }
-      if (notificationId) {
+      if (params.notificationId) {
         setNotifications(
-          (prev) => prev?.filter((n) => n.id !== notificationId) ?? prev,
+          (prev) =>
+            prev?.map((n) =>
+              n.id === params.notificationId
+                ? {
+                    ...n,
+                    status: "deleted",
+                    deleted_at: nowIso,
+                    read_at: n.read_at || nowIso,
+                  }
+                : n,
+            ) ?? prev,
         );
-        try {
-          const res = await fetch(
-            `/api/notifications?id=${encodeURIComponent(notificationId)}`,
-            { method: "DELETE" },
-          );
-          if (!res.ok) {
-            const supabase = createClient();
-            await supabase
-              .from("notifications")
-              .delete()
-              .eq("id", notificationId);
-          }
-          toast.success("Notification deleted");
-        } catch {
-          toast.error("Failed to delete notification");
+      }
+
+      try {
+        const res = await fetch("/api/notifications", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: params.notificationId,
+            entityType: params.entityType,
+            entityId: params.entityId,
+            title: params.title,
+            body: params.body,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to delete notification");
         }
-      } else {
-        toast.success("Notification removed");
+        if (data.notification) {
+          const savedRow = data.notification as Notification;
+          setNotifications((prev) => {
+            if (!prev) return [savedRow];
+            const exists = prev.some((n) => n.id === savedRow.id);
+            if (exists) {
+              return prev.map((n) =>
+                n.id === savedRow.id ? { ...n, ...savedRow } : n,
+              );
+            }
+            return [savedRow, ...prev];
+          });
+        }
+        toast.success(
+          "Notification moved to Deleted Notifications (status: deleted)",
+        );
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to delete notification",
+        );
       }
     },
     [],
   );
+
+  // Restore a deleted notification back to active
+  const restoreNotification = useCallback(
+    async (e: React.MouseEvent, n: EnrichedNotification) => {
+      e.stopPropagation();
+      setRestoringIds((prev) => ({ ...prev, [n.id]: true }));
+      const eType =
+        n.recipientType ||
+        (n.entity_type === "client" || n.entity_type === "investor"
+          ? n.entity_type
+          : undefined);
+      const eId = n.recipientEntityId || n.entity_id;
+
+      try {
+        const res = await fetch("/api/notifications", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "restore",
+            id: n.id,
+            entityType: eType,
+            entityId: eId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to restore notification");
+        }
+
+        setNotifications(
+          (prev) =>
+            prev?.map((item) =>
+              item.id === n.id ||
+              (eType &&
+                eId &&
+                item.entity_type === eType &&
+                item.entity_id === eId)
+                ? { ...item, status: "active", deleted_at: null }
+                : item,
+            ) ?? prev,
+        );
+        setDismissedKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(`notif-${n.id}`);
+          if (eType && eId) next.delete(`${eType}-${eId}`);
+          return next;
+        });
+
+        toast.success("Notification restored to active notifications");
+      } catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "Failed to restore notification",
+        );
+      } finally {
+        setRestoringIds((prev) => ({ ...prev, [n.id]: false }));
+      }
+    },
+    [],
+  );
+
+  const restoreAllDeleted = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore_all" }),
+      });
+      if (!res.ok) throw new Error("Failed to restore all notifications");
+
+      setNotifications(
+        (prev) =>
+          prev?.map((item) => ({
+            ...item,
+            status: "active",
+            deleted_at: null,
+          })) ?? prev,
+      );
+      setDismissedKeys(new Set());
+      toast.success("Restored all deleted notifications");
+    } catch {
+      toast.error("Failed to restore notifications");
+    }
+  }, []);
 
   const markRead = useCallback(
     async (id: string) => {
@@ -520,7 +705,7 @@ export default function NotificationsPage() {
   );
 
   const unreadIds =
-    notifications?.filter((n) => !n.read_at).map((n) => n.id) ?? [];
+    enrichedNotifications.filter((n) => !n.read_at).map((n) => n.id) ?? [];
 
   const markAllRead = useCallback(async () => {
     if (unreadIds.length === 0) return;
@@ -600,7 +785,6 @@ export default function NotificationsPage() {
   };
 
   const renderRecipientCard = (item: DirectRecipientItem) => {
-    if (dismissedKeys.has(item.key)) return null;
     const isSending = !!sendingKeys[item.key];
     const sentLabel = sentKeys[item.key];
     const EntityIcon = item.entityType === "investor" ? Landmark : UserCheck;
@@ -728,10 +912,17 @@ export default function NotificationsPage() {
 
             <button
               type="button"
-              title="Delete notification"
+              title="Delete notification (moves to Deleted Notifications)"
               aria-label="Delete notification"
               onClick={(e) =>
-                deleteNotification(e, item.notificationId, item.key)
+                deleteNotification(e, {
+                  notificationId: item.notificationId,
+                  cardKey: item.key,
+                  entityType: item.entityType,
+                  entityId: item.entityId,
+                  title: item.title,
+                  body: item.body,
+                })
               }
               className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-card text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
             >
@@ -855,43 +1046,224 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* Filter Tabs: All Notifications / Clients / Investors */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
-        <Button
-          variant={activeTab === "all" ? "default" : "ghost"}
-          size="sm"
-          onClick={() => setActiveTab("all")}
-          className="text-xs"
-        >
-          <Bell className="size-3.5 mr-1.5" />
-          All Notifications ({enrichedNotifications.length})
-        </Button>
-        <Button
-          variant={activeTab === "clients" ? "default" : "ghost"}
-          size="sm"
-          onClick={() => setActiveTab("clients")}
-          className="text-xs"
-        >
-          <UserCheck className="size-3.5 mr-1.5" />
-          Clients ({clientNotificationItems.length})
-        </Button>
-        <Button
-          variant={activeTab === "investors" ? "default" : "ghost"}
-          size="sm"
-          onClick={() => setActiveTab("investors")}
-          className="text-xs"
-        >
-          <Landmark className="size-3.5 mr-1.5" />
-          Investors ({investorNotificationItems.length})
-        </Button>
+      {/* Filter Tabs: All Notifications / Clients / Investors / Deleted Notifications */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={activeTab === "all" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("all")}
+            className="text-xs"
+          >
+            <Bell className="size-3.5 mr-1.5" />
+            All Notifications ({enrichedNotifications.length})
+          </Button>
+          <Button
+            variant={activeTab === "clients" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("clients")}
+            className="text-xs"
+          >
+            <UserCheck className="size-3.5 mr-1.5" />
+            Clients ({clientNotificationItems.length})
+          </Button>
+          <Button
+            variant={activeTab === "investors" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("investors")}
+            className="text-xs"
+          >
+            <Landmark className="size-3.5 mr-1.5" />
+            Investors ({investorNotificationItems.length})
+          </Button>
+          <Button
+            variant={activeTab === "deleted" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("deleted")}
+            className={cn(
+              "text-xs",
+              activeTab === "deleted"
+                ? "bg-rose-600 hover:bg-rose-700 text-white"
+                : "text-muted-foreground hover:text-rose-400",
+            )}
+          >
+            <Trash2 className="size-3.5 mr-1.5" />
+            Deleted Notifications ({deletedNotifications.length})
+          </Button>
+        </div>
+
+        {activeTab === "deleted" && deletedNotifications.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={restoreAllDeleted}
+            className="text-xs"
+          >
+            <RotateCcw className="size-3.5 mr-1.5" />
+            Restore All ({deletedNotifications.length})
+          </Button>
+        )}
       </div>
 
-      {activeTab === "clients" ? (
+      {activeTab === "deleted" ? (
+        deletedNotifications.length === 0 ? (
+          <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/40">
+            <Trash2 className="h-8 w-8 text-muted-foreground opacity-60" />
+            <p className="mt-2 text-sm font-medium text-foreground">
+              No deleted notifications
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              When you click the cross (X) on any notification, its status is
+              saved as &ldquo;deleted&rdquo; and appears here for future
+              reference.
+            </p>
+          </div>
+        ) : (
+          <ul className="space-y-2.5">
+            {deletedNotifications.map((n) => {
+              const Icon = TYPE_ICON[n.type] ?? Bell;
+              const rowKey = `deleted-${n.id}`;
+              const isSending = !!sendingKeys[rowKey];
+              const sentLabel = sentKeys[rowKey];
+              const isRestoring = !!restoringIds[n.id];
+              const hasRecipient = !!(
+                n.recipientPhone ||
+                n.recipientEntityId ||
+                n.entity_type === "investor" ||
+                n.entity_type === "client"
+              );
+
+              return (
+                <li key={n.id}>
+                  <div
+                    onClick={() => handleClick(n)}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-rose-500/20 bg-card/80 p-4 text-left transition-colors cursor-pointer hover:border-rose-500/40"
+                  >
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div
+                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-400"
+                        aria-hidden
+                      >
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-md bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-400">
+                            Status: Deleted
+                          </span>
+                          {(n.recipientType || n.entity_type) && (
+                            <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {(n.recipientType || n.entity_type) === "investor"
+                                ? "Investor"
+                                : "Client"}
+                            </span>
+                          )}
+                          <span className="text-sm font-semibold text-foreground">
+                            {n.liveTitle}
+                          </span>
+                          {n.recipientPhone && (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <Phone className="size-3" />
+                              {n.recipientPhone}
+                            </span>
+                          )}
+                          {renderDaysBadge(n)}
+                        </div>
+                        {n.liveBody && (
+                          <p className="text-xs text-muted-foreground">
+                            {n.liveBody}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-muted-foreground/70">
+                          Deleted{" "}
+                          {formatDistanceToNow(
+                            new Date(n.deleted_at || n.created_at),
+                            { addSuffix: true },
+                          )}{" "}
+                          • Created{" "}
+                          {formatDistanceToNow(new Date(n.created_at), {
+                            addSuffix: true,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className="flex items-center gap-2 self-end sm:self-center shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isRestoring}
+                        onClick={(e) => restoreNotification(e, n)}
+                        className="text-xs border-primary/40 text-primary hover:bg-primary/10"
+                      >
+                        {isRestoring ? (
+                          <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="size-3.5 mr-1.5" />
+                        )}
+                        Restore
+                      </Button>
+
+                      {hasRecipient && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={isSending}
+                          onClick={(e) =>
+                            handleSendWhatsAppNotification(e, {
+                              key: rowKey,
+                              notificationId: n.id,
+                              entityType:
+                                n.recipientType ||
+                                (n.entity_type === "investor" ||
+                                n.entity_type === "client"
+                                  ? n.entity_type
+                                  : undefined),
+                              entityId: n.recipientEntityId || n.entity_id,
+                              phone: n.recipientPhone,
+                              name: n.recipientName,
+                              message:
+                                n.suggestedWhatsAppMessage ||
+                                n.liveBody ||
+                                n.liveTitle,
+                              flatDetails: n.flatDetails,
+                              endDate: n.endDate,
+                              daysStatusLabel: n.daysStatusLabel,
+                            })
+                          }
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium shadow-sm"
+                        >
+                          {isSending ? (
+                            <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                          ) : sentLabel ? (
+                            <Check className="size-3.5 mr-1.5" />
+                          ) : (
+                            <Send className="size-3.5 mr-1.5" />
+                          )}
+                          {isSending
+                            ? "Sending..."
+                            : sentLabel
+                              ? sentLabel
+                              : "Send Notification"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : activeTab === "clients" ? (
         clientNotificationItems.length === 0 ? (
           <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/40">
             <UserCheck className="h-8 w-8 text-muted-foreground" />
             <p className="mt-2 text-sm font-medium text-foreground">
-              No clients found
+              No active client notifications
             </p>
           </div>
         ) : (
@@ -904,7 +1276,7 @@ export default function NotificationsPage() {
           <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/40">
             <Landmark className="h-8 w-8 text-muted-foreground" />
             <p className="mt-2 text-sm font-medium text-foreground">
-              No investors found
+              No active investor notifications
             </p>
           </div>
         ) : (
@@ -1110,10 +1482,22 @@ export default function NotificationsPage() {
 
                             <button
                               type="button"
-                              title="Delete notification"
+                              title="Delete notification (moves to Deleted Notifications)"
                               aria-label="Delete notification"
                               onClick={(e) =>
-                                deleteNotification(e, n.id, rowKey)
+                                deleteNotification(e, {
+                                  notificationId: n.id,
+                                  cardKey: rowKey,
+                                  entityType:
+                                    n.recipientType ||
+                                    (n.entity_type === "investor" ||
+                                    n.entity_type === "client"
+                                      ? n.entity_type
+                                      : undefined),
+                                  entityId: n.recipientEntityId || n.entity_id,
+                                  title: n.liveTitle,
+                                  body: n.liveBody,
+                                })
                               }
                               className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-card text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
                             >

@@ -224,10 +224,12 @@ ALTER TABLE notifications
   ADD CONSTRAINT notifications_type_check
   CHECK (type IN ('conversation_assigned', 'agreement_expiring', 'agreement_expired', 'rent_expiring'));
 
--- Add entity references to notifications for direct navigation
+-- Add entity references and soft-delete status to notifications
 ALTER TABLE notifications
   ADD COLUMN IF NOT EXISTS entity_type TEXT,
-  ADD COLUMN IF NOT EXISTS entity_id UUID;
+  ADD COLUMN IF NOT EXISTS entity_id UUID,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 -- Grant authenticated users capability to insert system agreement notifications
 DROP POLICY IF EXISTS notifications_insert_system ON notifications;

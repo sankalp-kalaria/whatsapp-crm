@@ -458,7 +458,7 @@ export async function checkAndNotifyExpiries(
 
         const { data: existingNotif } = await supabase
           .from('notifications')
-          .select('id')
+          .select('id, status')
           .eq('account_id', accountId)
           .eq('entity_type', 'investor')
           .eq('entity_id', inv.id)
@@ -478,9 +478,10 @@ export async function checkAndNotifyExpiries(
             body: built.notificationBody,
             entity_type: 'investor',
             entity_id: inv.id,
+            status: 'active',
           });
         } else {
-          // Always update existing notification row with on-the-spot calculation
+          // Update title & body with on-the-spot calculation while preserving `status` ('active' or 'deleted')
           await supabase
             .from('notifications')
             .update({
@@ -507,7 +508,7 @@ export async function checkAndNotifyExpiries(
 
         const { data: existingNotif } = await supabase
           .from('notifications')
-          .select('id')
+          .select('id, status')
           .eq('account_id', accountId)
           .eq('entity_type', 'client')
           .eq('entity_id', cl.id)
@@ -527,9 +528,10 @@ export async function checkAndNotifyExpiries(
             body: built.notificationBody,
             entity_type: 'client',
             entity_id: cl.id,
+            status: 'active',
           });
         } else {
-          // Always update existing notification row with on-the-spot calculation
+          // Update title & body with on-the-spot calculation while preserving `status` ('active' or 'deleted')
           await supabase
             .from('notifications')
             .update({

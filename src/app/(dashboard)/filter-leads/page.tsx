@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Filter,
@@ -13,6 +13,8 @@ import {
   Share2,
   UserPlus,
   Download,
+  Upload,
+  FileSpreadsheet,
   RefreshCw,
   CheckCircle2,
   Flame,
@@ -218,6 +220,9 @@ export default function FilterLeadsPage() {
   // Selection for Bulk Actions
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [forwardingBulk, setForwardingBulk] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
+  const [uploadingExcel, setUploadingExcel] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [sendingLeadId, setSendingLeadId] = useState<string | null>(null);
   const [forwardingLeadId, setForwardingLeadId] = useState<string | null>(null);
   const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
@@ -721,57 +726,76 @@ export default function FilterLeadsPage() {
     }
   };
 
-  // Export Filtered Leads to CSV
-  const handleExportCsv = () => {
-    if (filteredLeads.length === 0) {
-      toast.error('No filtered leads to export');
+  // Download Leads in Excel (.xlsx) Format with all separate Filter Columns
+  const handleDownloadExcel = async (targetLeads: FilteredLeadItem[], label: string) => {
+    if (targetLeads.length === 0) {
+      toast.error('No leads available to download');
       return;
     }
-    const headers = [
-      'Lead Name',
-      'Phone',
-      'Configuration',
-      'Budget Range',
-      'Carpet Preference',
-      'Inquiry Purpose',
-      'Lead Stage',
-      'Preferred Location',
-      'Site Visit',
-      'Last Message',
-      'Last Activity',
-      'Broker Notes',
-    ];
-    const rows = filteredLeads.map((l) => [
-      l.name,
-      l.phone,
-      l.configuration || 'Unspecified',
-      l.budgetRange || 'Unspecified',
-      l.carpetPreference || 'Standard',
-      l.inquiryType || 'Buy',
-      l.leadStage,
-      l.preferredLocation || '',
-      l.siteVisit?.availabilityText || 'Not Scheduled',
-      (l.lastMessageText || '').replace(/\n/g, ' '),
-      new Date(l.lastMessageAt).toLocaleString('en-IN'),
-      (l.brokerNotes || '').replace(/\n/g, ' '),
-    ]);
+    setDownloadingExcel(true);
+    try {
+      const res = await fetch('/api/filter-leads/excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: targetLeads }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to generate Excel file');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `filter-leads-${label}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(
+        `Downloaded ${targetLeads.length} leads in Excel (.xlsx) format`
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to download Excel file'
+      );
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
 
-    const csvContent = [headers, ...rows]
-      .map((row) =>
-        row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-      )
-      .join('\n');
+  // Upload Edited Excel (.xlsx / .csv) & Overwrite Leads by Unique Phone Number
+  const handleUploadExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingExcel(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `filtered-real-estate-leads-${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${filteredLeads.length} leads to CSV`);
+      const res = await fetch('/api/filter-leads/excel', {
+        method: 'PUT',
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to upload Excel file');
+      }
+
+      toast.success(
+        `Excel uploaded! Processed ${data.totalProcessed} unique phone number(s): ${data.updatedCount} overwritten, ${data.createdCount} new added.`
+      );
+      await loadLeads();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to upload Excel file'
+      );
+    } finally {
+      setUploadingExcel(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const selectedLeadObjects = useMemo(
@@ -818,6 +842,15 @@ export default function FilterLeadsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Hidden File Input for Excel Upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleUploadExcel}
+          />
+
           <Button
             variant="outline"
             size="sm"
@@ -827,17 +860,53 @@ export default function FilterLeadsPage() {
             <RefreshCw
               className={`h-4 w-4 mr-1.5 ${loading ? 'animate-spin' : ''}`}
             />
-            Refresh Inbox Leads
+            Refresh
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportCsv}
-            disabled={filteredLeads.length === 0}
+            onClick={() =>
+              handleDownloadExcel(
+                filteredLeads.length < leads.length ? filteredLeads : leads,
+                filteredLeads.length < leads.length ? 'filtered' : 'all'
+              )
+            }
+            disabled={downloadingExcel || filteredLeads.length === 0}
+            className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+            title="Download all separate filter columns (Phone, Name, BHK, Budget, Carpet, Stage, Location, Site Visit, Notes, Messages) in Excel (.xlsx) format"
           >
-            <Download className="h-4 w-4 mr-1.5" />
-            Export Filtered ({filteredLeads.length})
+            <FileSpreadsheet className="h-4 w-4 mr-1.5 text-emerald-400" />
+            {downloadingExcel
+              ? 'Generating Excel...'
+              : filteredLeads.length < leads.length
+                ? `Download Filtered Excel (${filteredLeads.length})`
+                : `Download All Leads Excel (${leads.length})`}
+          </Button>
+
+          {filteredLeads.length < leads.length && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownloadExcel(leads, 'all')}
+              disabled={downloadingExcel || leads.length === 0}
+              title="Download all Inbox leads in Excel (.xlsx) format"
+            >
+              <Download className="h-4 w-4 mr-1.5" />
+              Download All ({leads.length})
+            </Button>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={uploadingExcel}
+            onClick={() => fileInputRef.current?.click()}
+            className="border-sky-500/40 text-sky-300 hover:bg-sky-500/10"
+            title="Upload an edited Excel (.xlsx) file — overwrites lead details based on unique Phone Number"
+          >
+            <Upload className="h-4 w-4 mr-1.5 text-sky-400" />
+            {uploadingExcel ? 'Uploading Excel...' : 'Upload Excel (Overwrite by Phone)'}
           </Button>
 
           <Button
