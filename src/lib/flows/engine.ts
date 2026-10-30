@@ -90,6 +90,97 @@ export function matchReplyId(
 }
 
 /**
+ * Returns detail metadata (next_node_key, title, reply_id) for a matched button/list tap.
+ */
+export function matchReplyDetails(
+  node: { node_type: string; config: Record<string, unknown> },
+  reply_id: string,
+): { next_node_key: string; title: string; reply_id: string } | null {
+  if (node.node_type === "send_buttons") {
+    const cfg = node.config as unknown as SendButtonsNodeConfig;
+    const hit = cfg.buttons?.find((b) => b.reply_id === reply_id);
+    return hit
+      ? { next_node_key: hit.next_node_key, title: hit.title, reply_id: hit.reply_id }
+      : null;
+  }
+  if (node.node_type === "send_list") {
+    const cfg = node.config as unknown as SendListNodeConfig;
+    for (const section of cfg.sections ?? []) {
+      const hit = section.rows?.find((r) => r.reply_id === reply_id);
+      if (hit) {
+        return { next_node_key: hit.next_node_key, title: hit.title, reply_id: hit.reply_id };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Matches typed text to buttons or list options (e.g. user typing '1 BHK', '1', '65 L Below').
+ */
+export function matchTextToOption(
+  node: { node_type: string; config: Record<string, unknown> },
+  rawText: string,
+): { next_node_key: string; title: string; reply_id: string } | null {
+  const text = rawText.trim().toLowerCase();
+  if (!text) return null;
+
+  if (node.node_type === "send_buttons") {
+    const cfg = node.config as unknown as SendButtonsNodeConfig;
+    if (!cfg.buttons?.length) return null;
+
+    // Check numeric index 1, 2, 3
+    const num = parseInt(text, 10);
+    if (!isNaN(num) && num >= 1 && num <= cfg.buttons.length) {
+      const b = cfg.buttons[num - 1];
+      return { next_node_key: b.next_node_key, title: b.title, reply_id: b.reply_id };
+    }
+
+    const cleanText = text.replace(/[^a-z0-9]/g, "");
+
+    for (const b of cfg.buttons) {
+      const title = b.title.toLowerCase();
+      const id = b.reply_id.toLowerCase();
+      const cleanTitle = title.replace(/[^a-z0-9]/g, "");
+      const cleanId = id.replace(/[^a-z0-9]/g, "");
+
+      if (
+        title === text ||
+        id === text ||
+        (cleanText.length > 0 && cleanTitle === cleanText) ||
+        (cleanText.length > 0 && cleanId === cleanText) ||
+        title.includes(text) ||
+        text.includes(title) ||
+        (cleanText.length >= 2 && cleanTitle.includes(cleanText)) ||
+        (cleanText.length >= 2 && cleanText.includes(cleanTitle))
+      ) {
+        return { next_node_key: b.next_node_key, title: b.title, reply_id: b.reply_id };
+      }
+    }
+  }
+
+  if (node.node_type === "send_list") {
+    const cfg = node.config as unknown as SendListNodeConfig;
+    let rowIndex = 0;
+    for (const section of cfg.sections ?? []) {
+      for (const row of section.rows ?? []) {
+        rowIndex++;
+        if (text === String(rowIndex)) {
+          return { next_node_key: row.next_node_key, title: row.title, reply_id: row.reply_id };
+        }
+        const title = row.title.toLowerCase();
+        const id = row.reply_id.toLowerCase();
+        if (title === text || id === text || title.includes(text) || text.includes(title)) {
+          return { next_node_key: row.next_node_key, title: row.title, reply_id: row.reply_id };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Case-insensitive contains/exact match against a list of keywords.
  * Used by the trigger evaluator. Stable enough that the v3 builder
  * UI can preview matches by passing canned strings.
@@ -377,6 +468,20 @@ async function findEntryFlow(
     }
     // 'manual' triggers do not auto-start from inbound messages.
   }
+
+  // Fallback: If no keyword flow matched, and the active flow has trigger_type === 'first_inbound_message',
+  // allow common greeting or property inquiry keywords to start the flow even if not their first message ever.
+  const defaultFlow = typed.find((f) => f.trigger_type === "first_inbound_message");
+  if (defaultFlow) {
+    const commonTriggers = [
+      "hi", "hello", "hey", "property", "bhk", "1 bhk", "2 bhk", "3 bhk",
+      "1bhk", "2bhk", "3bhk", "flat", "site visit", "menu", "start", "options", "help",
+    ];
+    if (candidates.some((c) => commonTriggers.includes(c.trim().toLowerCase()))) {
+      return defaultFlow;
+    }
+  }
+
   return null;
 }
 
@@ -946,6 +1051,13 @@ export async function dispatchInboundToFlows(
           outcome: "duplicate_inbound_ignored",
         };
       }
+      if (!activeRun.vars?.calendar_link && input.conversationId) {
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+        const calendarLink = siteUrl && !siteUrl.includes("example.com")
+          ? `${siteUrl}/book-visit/${input.conversationId}`
+          : `/book-visit/${input.conversationId}`;
+        activeRun.vars = { ...(activeRun.vars || {}), calendar_link: calendarLink };
+      }
       // One SELECT for the whole flow's nodes — advance loop is now
       // in-memory. See loadAllNodes.
       const nodes = await loadAllNodes(db, activeRun.flow_id);
@@ -1010,18 +1122,37 @@ async function handleReplyForActiveRun(
     return { consumed: true, flow_run_id: run.id, outcome: "no_match" };
   }
 
-  // Two ways a reply can advance:
+  // Ways a reply can advance:
   //   1. Interactive button/list tap on a send_buttons/send_list node.
-  //   2. Text reply on a collect_input node — capture into vars.
+  //   2. Typed text reply matching a button/list option (e.g. typing '1 BHK', '1', '65 L Below').
+  //   3. Text reply on a collect_input node — capture into vars.
   //
   // Everything else falls through to the fallback policy below.
   let matched: string | null = null;
+  let selectedOption: { title: string; reply_id: string } | null = null;
+
   if (
     message.kind === "interactive_reply" &&
     (currentNode.node_type === "send_buttons" ||
       currentNode.node_type === "send_list")
   ) {
-    matched = matchReplyId(currentNode, message.reply_id);
+    const hit = matchReplyDetails(currentNode, message.reply_id);
+    if (hit) {
+      matched = hit.next_node_key;
+      selectedOption = { title: hit.title, reply_id: hit.reply_id };
+    } else {
+      matched = matchReplyId(currentNode, message.reply_id);
+    }
+  } else if (
+    message.kind === "text" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    const hit = matchTextToOption(currentNode, message.text);
+    if (hit) {
+      matched = hit.next_node_key;
+      selectedOption = { title: hit.title, reply_id: hit.reply_id };
+    }
   } else if (
     message.kind === "text" &&
     currentNode.node_type === "collect_input"
@@ -1031,6 +1162,29 @@ async function handleReplyForActiveRun(
     if (captured.length > 0 && cfg.var_key) {
       // Persist captured value + reset reprompt count atomically.
       const newVars = { ...run.vars, [cfg.var_key]: captured };
+
+      // If customer is submitting their site visit availability, record in site_visits table
+      if (cfg.var_key === "site_visit_availability") {
+        try {
+          const nextDay = new Date();
+          nextDay.setDate(nextDay.getDate() + 1);
+          await db.from("site_visits").insert({
+            account_id: run.account_id,
+            contact_id: run.contact_id,
+            conversation_id: run.conversation_id,
+            flow_run_id: run.id,
+            visit_date: nextDay.toISOString().split("T")[0],
+            visit_time: captured,
+            configuration: (run.vars.configuration as string) ?? null,
+            budget_range: (run.vars.budget_range as string) ?? null,
+            status: "scheduled",
+            notes: `Availability requested via WhatsApp: ${captured}`,
+          });
+        } catch (visitErr) {
+          console.warn("[flows] failed to insert site_visit on collect_input:", visitErr);
+        }
+      }
+
       const { error: capErr } = await db
         .from("flow_runs")
         .update({
@@ -1051,6 +1205,20 @@ async function handleReplyForActiveRun(
         matched = cfg.next_node_key;
       }
     }
+  }
+
+  // If a button option was selected, remember configuration or budget_range in vars
+  if (selectedOption) {
+    const updatedVars = { ...run.vars };
+    const lowerKey = currentNode.node_key.toLowerCase();
+    const lowerId = selectedOption.reply_id.toLowerCase();
+    if (lowerKey.includes("config") || lowerId.includes("bhk")) {
+      updatedVars.configuration = selectedOption.title;
+    } else if (lowerKey.includes("budget") || lowerId.startsWith("b")) {
+      updatedVars.budget_range = selectedOption.title;
+    }
+    run.vars = updatedVars;
+    await db.from("flow_runs").update({ vars: updatedVars }).eq("id", run.id);
   }
 
   if (matched) {
@@ -1153,6 +1321,11 @@ async function startNewRun(
   // INSERT — partial unique index `idx_one_active_run_per_contact`
   // catches concurrent inserts with 23505. We catch and return as
   // consumed:true (the parallel webhook handles it).
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
+  const calendarLink = siteUrl && !siteUrl.includes("example.com")
+    ? `${siteUrl}/book-visit/${input.conversationId}`
+    : `/book-visit/${input.conversationId}`;
+
   const { data: inserted, error: insErr } = await db
     .from("flow_runs")
     .insert({
@@ -1169,6 +1342,7 @@ async function startNewRun(
       conversation_id: input.conversationId,
       status: "active",
       current_node_key: flow.entry_node_id,
+      vars: { calendar_link: calendarLink },
     })
     .select("*")
     .maybeSingle();

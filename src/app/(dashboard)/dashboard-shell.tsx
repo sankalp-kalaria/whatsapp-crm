@@ -27,6 +27,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
+    } else if (user) {
+      // Ensure the default Property Inquiry & Site Visit flow is bootstrapped and active for this account
+      fetch("/api/flows/ensure-default", { method: "POST" }).catch(() => {});
     }
   }, [user, loading, router]);
 

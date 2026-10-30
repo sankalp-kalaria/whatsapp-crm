@@ -87,6 +87,7 @@ export async function checkAndNotifyExpiries(
         .from('notifications')
         .select('id')
         .eq('account_id', accountId)
+        .eq('entity_type', 'investor')
         .eq('entity_id', inv.id)
         .gte('created_at', new Date(today.getFullYear(), today.getMonth(), 1).toISOString())
         .limit(1);
@@ -143,6 +144,7 @@ export async function checkAndNotifyExpiries(
         .from('notifications')
         .select('id')
         .eq('account_id', accountId)
+        .eq('entity_type', 'client')
         .eq('entity_id', cl.id)
         .gte('created_at', new Date(today.getFullYear(), today.getMonth(), 1).toISOString())
         .limit(1);

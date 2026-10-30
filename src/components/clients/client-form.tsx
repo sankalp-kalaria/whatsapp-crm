@@ -26,12 +26,13 @@ import {
   Loader2,
   UserCheck,
   CreditCard,
-  Building,
   Calendar,
   Phone,
   Mail,
   MapPin,
   Landmark,
+  Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 import type { Client, ClientStatus, Investor } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
@@ -55,6 +56,7 @@ export function ClientForm({
   const [saving, setSaving] = useState(false);
   const [investors, setInvestors] = useState<Investor[]>([]);
   const [loadingInvestors, setLoadingInvestors] = useState(false);
+  const [autoFilledFromInvestor, setAutoFilledFromInvestor] = useState(false);
 
   // Form fields
   const [name, setName] = useState('');
@@ -90,6 +92,9 @@ export function ClientForm({
   }, [open, accountId, supabase]);
 
   useEffect(() => {
+    // Reset auto-fill indicator whenever the form opens/changes
+    setAutoFilledFromInvestor(false);
+
     if (client) {
       setName(client.name || '');
       setPhone(client.phone || '');
@@ -180,6 +185,65 @@ export function ClientForm({
       toast.error(`Failed to save client: ${error.message}`);
     } else {
       toast.success(client ? 'Client updated successfully' : 'Client added successfully');
+
+      // If investor linked and agreement end date set, prompt WhatsApp notifications for both parties
+      const linkedInvestor =
+        investorId && investorId !== 'none'
+          ? investors.find((inv) => inv.id === investorId)
+          : null;
+
+      if (linkedInvestor && agreementEndDate) {
+        const today = new Date();
+        const targetDate = new Date(agreementEndDate);
+        const diffTime = targetDate.getTime() - today.getTime();
+        const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const isExpired = daysRemaining < 0;
+        const flatDetails = linkedInvestor.purchase_flat_details || 'your flat';
+
+        const clientMsg = isExpired
+          ? `Hello ${name.trim()}, your tenancy agreement for ${flatDetails} ended on ${agreementEndDate}. Please contact us regarding agreement renewal or move-out formalities.`
+          : `Hello ${name.trim()}, gentle reminder that your tenancy agreement for ${flatDetails} is due to expire in ${daysRemaining} days on ${agreementEndDate}. Please let us know if you wish to renew.`;
+
+        const investorMsg = isExpired
+          ? `Hello ${linkedInvestor.name}, the tenancy agreement for ${flatDetails} with your tenant has ended on ${agreementEndDate}. We are assisting with renewal or finding a new tenant.`
+          : `Hello ${linkedInvestor.name}, your tenant's agreement for ${flatDetails} is expiring in ${daysRemaining} days on ${agreementEndDate}. We will assist with renewal or re-listing if needed.`;
+
+        const cleanClientPhone = phone.trim().replace(/[^0-9]/g, '');
+        const cleanInvestorPhone = linkedInvestor.phone.replace(/[^0-9]/g, '');
+
+        // Show toast actions to open WhatsApp for both parties
+        toast(
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-foreground">Agreement linked! Notify parties on WhatsApp?</p>
+            <div className="flex flex-col gap-1.5">
+              <button
+                onClick={() =>
+                  window.open(
+                    `https://wa.me/${cleanClientPhone}?text=${encodeURIComponent(clientMsg)}`,
+                    '_blank'
+                  )
+                }
+                className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded px-2 py-1 text-left"
+              >
+                💬 Notify Client ({name.trim()})
+              </button>
+              <button
+                onClick={() =>
+                  window.open(
+                    `https://wa.me/${cleanInvestorPhone}?text=${encodeURIComponent(investorMsg)}`,
+                    '_blank'
+                  )
+                }
+                className="text-xs bg-blue-600 hover:bg-blue-700 text-white rounded px-2 py-1 text-left"
+              >
+                💬 Notify Investor ({linkedInvestor.name})
+              </button>
+            </div>
+          </div>,
+          { duration: 12000 }
+        );
+      }
+
       onOpenChange(false);
       onSaved();
     }
@@ -321,7 +385,30 @@ export function ClientForm({
               <Select
                 value={investorId}
                 onValueChange={(val) => {
-                  if (val) setInvestorId(val);
+                  if (!val) return;
+                  setInvestorId(val);
+                  // Auto-fill agreement details from selected investor
+                  if (val !== 'none') {
+                    const selectedInvestor = investors.find((inv) => inv.id === val);
+                    if (selectedInvestor) {
+                      // Only overwrite blank fields so manual entries are preserved
+                      if (!agreementStartDate && selectedInvestor.agreement_start_date) {
+                        setAgreementStartDate(selectedInvestor.agreement_start_date);
+                      }
+                      if (!agreementEndDate && selectedInvestor.agreement_end_date) {
+                        setAgreementEndDate(selectedInvestor.agreement_end_date);
+                      }
+                      if (!rentAmount && selectedInvestor.rent_amount) {
+                        setRentAmount(String(selectedInvestor.rent_amount));
+                      }
+                      if (!agreementDetails && selectedInvestor.agreement_details) {
+                        setAgreementDetails(selectedInvestor.agreement_details);
+                      }
+                      setAutoFilledFromInvestor(true);
+                    }
+                  } else {
+                    setAutoFilledFromInvestor(false);
+                  }
                 }}
               >
                 <SelectTrigger>
@@ -338,17 +425,37 @@ export function ClientForm({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-muted-foreground">
-                Associating this client with an investor allows tracking tenant-owner relationships and agreement renewals.
-              </p>
+              {autoFilledFromInvestor && (
+                <p className="text-[11px] flex items-center gap-1 text-emerald-400 font-medium">
+                  <Sparkles className="size-3" />
+                  Agreement details auto-filled from investor record. You can still edit them below.
+                </p>
+              )}
+              {!autoFilledFromInvestor && (
+                <p className="text-[11px] text-muted-foreground">
+                  Associating this client with an investor allows tracking tenant-owner relationships and agreement renewals.
+                </p>
+              )}
             </div>
           </div>
 
           {/* Agreement & Financials */}
-          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Calendar className="size-4 text-primary" />
-              Agreement & Tenancy Schedule
+          <div className={`rounded-lg border p-3 space-y-3 transition-colors ${
+            autoFilledFromInvestor
+              ? 'border-emerald-500/40 bg-emerald-500/5'
+              : 'border-border/80 bg-muted/20'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Calendar className="size-4 text-primary" />
+                Agreement & Tenancy Schedule
+              </div>
+              {autoFilledFromInvestor && (
+                <span className="text-[10px] flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5 font-semibold">
+                  <Sparkles className="size-2.5" />
+                  Auto-filled
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">

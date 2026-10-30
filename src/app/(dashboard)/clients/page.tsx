@@ -45,11 +45,15 @@ import {
   Landmark,
   Clock,
   ShieldCheck,
+  Calendar,
 } from 'lucide-react';
 import { ClientForm } from '@/components/clients/client-form';
 import { ClientDetailView } from '@/components/clients/client-detail-view';
+import { ExpiryBanner } from '@/components/investors/expiry-banner';
+import type { ExpiryItem } from '@/lib/investors/check-expiries';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
+import { SiteVisitsView } from '@/components/site-visits/site-visits-view';
 
 const PAGE_SIZE = 25;
 
@@ -79,7 +83,30 @@ export default function ClientsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
+  // Client agreement expiry alerts
+  const [expiryItems, setExpiryItems] = useState<ExpiryItem[]>([]);
+
   const fetchSeq = useRef(0);
+
+  // Trigger expiry check — inserts notifications into the DB for clients
+  // that have agreements expiring within 30 days, mirroring the investors page.
+  const checkExpiries = useCallback(async () => {
+    try {
+      const res = await fetch('/api/investors/check-expiries');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.items) {
+          // Only show client-type items on this page
+          const clientItems = (data.items as ExpiryItem[]).filter(
+            (i) => i.type === 'client'
+          );
+          setExpiryItems(clientItems);
+        }
+      }
+    } catch {
+      // Non-fatal — notifications still persist from last successful run
+    }
+  }, []);
 
   const fetchClients = useCallback(async () => {
     const seq = ++fetchSeq.current;
@@ -132,7 +159,8 @@ export default function ClientsPage() {
 
   useEffect(() => {
     fetchClients();
-  }, [fetchClients]);
+    checkExpiries();
+  }, [fetchClients, checkExpiries]);
 
   // Realtime subscription
   useEffect(() => {
@@ -274,6 +302,20 @@ export default function ClientsPage() {
           </GatedButton>
         </div>
       </div>
+
+      {/* Client Agreement Expiry Alerts */}
+      {expiryItems.length > 0 && (
+        <ExpiryBanner
+          items={expiryItems}
+          onNotifyWhatsApp={(phone, message) => {
+            const cleanPhone = phone.replace(/[^0-9]/g, '');
+            window.open(
+              `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`,
+              '_blank'
+            );
+          }}
+        />
+      )}
 
       {/* Filter Tabs & Search */}
       <div className="space-y-3">
