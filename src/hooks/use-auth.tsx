@@ -20,12 +20,18 @@ import {
   isAccountRole,
   type AccountRole,
 } from "@/lib/auth/roles";
+import {
+  extractForwardSettingsFromProfile,
+  type ForwardIntervalMinutes,
+} from "@/lib/profile/forward-settings";
 
 interface Profile {
   id: string;
   full_name: string | null;
   email: string;
   avatar_url: string | null;
+  phone: string | null;
+  forward_interval_minutes: ForwardIntervalMinutes;
   role: string | null;
   /**
    * Opted-in beta feature keys for this account. No current feature
@@ -148,6 +154,8 @@ interface ProfileRow {
   full_name: string | null;
   email: string;
   avatar_url: string | null;
+  phone?: string | null;
+  forward_interval_minutes?: number | null;
   role: string | null;
   beta_features: string[] | null;
   account_id: string | null;
@@ -191,9 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       for (let attempt = 1; ; attempt++) {
         const result = await supabase
           .from("profiles")
-          .select(
-            "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
-          )
+          .select("*")
           .eq("user_id", userId)
           .maybeSingle();
 
@@ -267,11 +273,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? data.account_role
           : null;
 
+        const forwardSettings = extractForwardSettingsFromProfile(data);
+
         setProfile({
           id: data.id,
           full_name: data.full_name,
           email: data.email,
           avatar_url: data.avatar_url,
+          phone: forwardSettings.phone || null,
+          forward_interval_minutes: forwardSettings.forwardIntervalMinutes,
           role: data.role,
           // `beta_features` is `NOT NULL DEFAULT ARRAY[]` in the DB, but
           // narrow defensively in case the column hasn't been migrated yet

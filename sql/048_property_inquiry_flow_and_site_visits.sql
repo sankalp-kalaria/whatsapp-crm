@@ -226,19 +226,34 @@ BEGIN
     'send_message',
     '{
       "text": "Thank you! We have received your availability: \"{{vars.site_visit_availability}}\". Our property executive will connect with you shortly to confirm the site visit.",
-      "next_node_key": "end"
+      "next_node_key": "forward_conversation"
     }'::jsonb,
     1340, 200
   );
 
-  -- 8. End
+  -- 8. Forward Conversation to Profile Number (30m / 1h / 2h interval)
+  INSERT INTO flow_nodes (flow_id, node_key, node_type, config, position_x, position_y)
+  VALUES (
+    v_flow_id,
+    'forward_conversation',
+    'forward_conversation',
+    '{
+      "interval_mode": "profile_default",
+      "recipient_phone": "",
+      "custom_note": "Property Inquiry & Site Visit Lead Summary",
+      "next_node_key": "end"
+    }'::jsonb,
+    1600, 200
+  );
+
+  -- 9. End
   INSERT INTO flow_nodes (flow_id, node_key, node_type, config, position_x, position_y)
   VALUES (
     v_flow_id,
     'end',
     'end',
     '{}'::jsonb,
-    1600, 200
+    1880, 200
   );
 
   RETURN v_flow_id;

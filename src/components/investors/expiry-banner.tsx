@@ -1,22 +1,90 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Clock, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  AlertTriangle,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
+  Send,
+  Loader2,
+  Check,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { ExpiryItem } from '@/lib/investors/check-expiries';
+import { toast } from 'sonner';
+import {
+  calculateDaysFromToday,
+  type ExpiryItem,
+} from '@/lib/investors/check-expiries';
 
 interface ExpiryBannerProps {
   items: ExpiryItem[];
-  onNotifyWhatsApp: (phone: string, message: string) => void;
+  onNotifyWhatsApp?: (phone: string, message: string) => void;
 }
 
 export function ExpiryBanner({ items, onNotifyWhatsApp }: ExpiryBannerProps) {
   const [expanded, setExpanded] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
   if (!items || items.length === 0) return null;
 
-  const expired = items.filter((i) => i.isExpired);
-  const expiringSoon = items.filter((i) => !i.isExpired);
+  const now = new Date();
+  const liveItems = items.map((item) => {
+    const calc = calculateDaysFromToday(item.endDate, now);
+    return {
+      ...item,
+      daysRemaining: calc.daysRemaining,
+      isExpired: calc.isExpired,
+      isDueToday: calc.isDueToday,
+      daysStatusLabel: calc.daysStatusLabel,
+    };
+  });
+
+  const expired = liveItems.filter((i) => i.isExpired);
+  const expiringSoon = liveItems.filter((i) => !i.isExpired);
+
+  async function handleSendNotification(item: ExpiryItem) {
+    const key = `${item.type}-${item.id}`;
+    setSendingId(key);
+    try {
+      const res = await fetch('/api/notifications/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entityType: item.type,
+          entityId: item.id,
+          phone: item.phone,
+          name: item.name,
+          message: item.suggestedWhatsAppMessage,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.fallbackWaLink) {
+          toast.error(
+            data.error || 'Could not send via API — opening WhatsApp instead.'
+          );
+          window.open(data.fallbackWaLink, '_blank');
+        } else {
+          toast.error(data.error || 'Failed to send notification');
+        }
+        return;
+      }
+      setSentIds((prev) => new Set(prev).add(key));
+      toast.success(
+        `Notification sent to ${item.name} (${data.recipientPhone || item.phone})`
+      );
+    } catch {
+      if (onNotifyWhatsApp) {
+        onNotifyWhatsApp(item.phone, item.suggestedWhatsAppMessage);
+      } else {
+        toast.error('Failed to send notification');
+      }
+    } finally {
+      setSendingId(null);
+    }
+  }
 
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 transition-all">
@@ -29,18 +97,21 @@ export function ExpiryBanner({ items, onNotifyWhatsApp }: ExpiryBannerProps) {
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
               Agreement Expiry Alerts
               <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
-                {items.length} {items.length === 1 ? 'Action Required' : 'Actions Required'}
+                {liveItems.length}{' '}
+                {liveItems.length === 1 ? 'Action Required' : 'Actions Required'}
               </span>
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               {expired.length > 0 && (
                 <span className="text-red-400 font-medium">
-                  {expired.length} agreement{expired.length > 1 ? 's' : ''} expired!{' '}
+                  {expired.length} agreement{expired.length > 1 ? 's' : ''} past
+                  due!{' '}
                 </span>
               )}
               {expiringSoon.length > 0 && (
                 <span>
-                  {expiringSoon.length} agreement{expiringSoon.length > 1 ? 's' : ''} ending within 30 days.
+                  {expiringSoon.length} agreement
+                  {expiringSoon.length > 1 ? 's' : ''} due within 30 days.
                 </span>
               )}
             </p>
@@ -66,52 +137,87 @@ export function ExpiryBanner({ items, onNotifyWhatsApp }: ExpiryBannerProps) {
 
       {expanded && (
         <div className="mt-4 space-y-2 border-t border-amber-500/20 pt-3">
-          {items.map((item) => (
-            <div
-              key={`${item.type}-${item.id}`}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/60 p-3"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground truncate">
-                    {item.name}
-                  </span>
-                  <span className="text-xs text-muted-foreground">({item.phone})</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-                      item.isExpired
-                        ? 'border border-red-500/30 bg-red-500/10 text-red-400'
-                        : 'border border-amber-500/30 bg-amber-500/10 text-amber-400'
-                    }`}
-                  >
-                    {item.isExpired
-                      ? `Expired (${Math.abs(item.daysRemaining)}d ago)`
-                      : `${item.daysRemaining} days left`}
-                  </span>
+          {liveItems.map((item) => {
+            const key = `${item.type}-${item.id}`;
+            const isSending = sendingId === key;
+            const isSent = sentIds.has(key);
+            return (
+              <div
+                key={key}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/60 p-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {item.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      ({item.phone})
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                        item.isExpired
+                          ? 'border border-red-500/30 bg-red-500/10 text-red-400'
+                          : item.isDueToday
+                            ? 'border border-orange-500/30 bg-orange-500/10 text-orange-400'
+                            : 'border border-amber-500/30 bg-amber-500/10 text-amber-400'
+                      }`}
+                    >
+                      {item.daysStatusLabel}
+                    </span>
+                  </div>
+                  {item.flatDetails && (
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      Flat:{' '}
+                      <span className="text-foreground/90">
+                        {item.flatDetails}
+                      </span>{' '}
+                      • Date: {item.endDate}
+                    </p>
+                  )}
                 </div>
-                {item.flatDetails && (
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    Flat: <span className="text-foreground/90">{item.flatDetails}</span> • Ends on{' '}
-                    {item.endDate}
-                  </p>
-                )}
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    onNotifyWhatsApp(item.phone, item.suggestedWhatsAppMessage)
-                  }
-                  className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 text-xs"
-                >
-                  <MessageSquare className="size-3.5 mr-1" />
-                  Notify on WhatsApp
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isSending}
+                    onClick={() => handleSendNotification(item)}
+                    className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 text-xs"
+                  >
+                    {isSending ? (
+                      <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                    ) : isSent ? (
+                      <Check className="size-3.5 mr-1.5" />
+                    ) : (
+                      <Send className="size-3.5 mr-1.5" />
+                    )}
+                    {isSending
+                      ? 'Sending...'
+                      : isSent
+                        ? 'Sent Notification'
+                        : 'Send Notification'}
+                  </Button>
+                  {onNotifyWhatsApp && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        onNotifyWhatsApp(
+                          item.phone,
+                          item.suggestedWhatsAppMessage
+                        )
+                      }
+                      title="Open in WhatsApp Web/App"
+                      className="text-xs text-muted-foreground hover:text-foreground px-2"
+                    >
+                      <MessageSquare className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

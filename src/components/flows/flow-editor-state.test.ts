@@ -90,6 +90,7 @@ describe("defaultConfigFor", () => {
     "collect_input",
     "condition",
     "set_tag",
+    "forward_conversation",
     "handoff",
     "end",
   ];

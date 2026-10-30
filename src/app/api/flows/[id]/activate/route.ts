@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
+import { normalizeFlowNodeRow } from '@/lib/flows/forward-conversation'
 import { validateFlowForActivation } from '@/lib/flows/validate'
 import { getT } from '@/lib/i18n/translate'
 
@@ -91,11 +92,11 @@ export async function POST(
         trigger_config: Record<string, unknown>
         entry_node_id: string | null
       },
-      (nodes ?? []) as Array<{
+      ((nodes ?? []) as Array<{
         node_key: string
         node_type: string
         config: Record<string, unknown>
-      }>,
+      }>).map((n) => normalizeFlowNodeRow(n)),
     )
     const blockers = issues.filter((i) => i.severity === 'error')
     if (blockers.length > 0) {

@@ -1359,6 +1359,10 @@
           "label": "Etiquetar contacto",
           "blurb": "Agrega o quita una etiqueta del contacto"
         },
+        "forward_conversation": {
+          "label": "Reenviar conversación",
+          "blurb": "Envía detalles y conversación al número de perfil"
+        },
         "handoff": {
           "label": "Transferir a agente",
           "blurb": "Pasa la conversación a una persona"

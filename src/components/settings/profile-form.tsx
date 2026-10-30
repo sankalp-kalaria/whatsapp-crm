@@ -2,13 +2,25 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Upload, Trash2, Mail, CircleAlert } from 'lucide-react';
+import { Loader2, Upload, Trash2, Mail, CircleAlert, Phone, Clock, Send } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  mergeForwardSettingsIntoBetaFeatures,
+  normalizeForwardInterval,
+  type ForwardIntervalMinutes,
+} from '@/lib/profile/forward-settings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Avatar,
   AvatarFallback,
@@ -40,10 +52,13 @@ export function ProfileForm() {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [forwardInterval, setForwardInterval] = useState<ForwardIntervalMinutes>(60);
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [forwardingNow, setForwardingNow] = useState(false);
   const [emailChangePending, setEmailChangePending] = useState(false);
 
   // Seed form state once the profile loads.
@@ -51,6 +66,8 @@ export function ProfileForm() {
     if (!profile) return;
     setFullName(profile.full_name ?? '');
     setEmail(profile.email ?? '');
+    setPhone(profile.phone ?? '');
+    setForwardInterval(normalizeForwardInterval(profile.forward_interval_minutes ?? 60));
   }, [profile]);
 
   // Cleanup object URLs to avoid leaks.
@@ -140,16 +157,39 @@ export function ProfileForm() {
         nextAvatarUrl = null;
       }
 
-      // Persist name + avatar to profiles.
+      // Persist name + avatar + phone + forward_interval_minutes to profiles.
+      const trimmedPhone = phone.trim();
+      const nextBetaFeatures = mergeForwardSettingsIntoBetaFeatures(
+        profile.beta_features,
+        trimmedPhone,
+        forwardInterval,
+      );
+
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
           full_name: trimmedName,
           avatar_url: nextAvatarUrl,
+          phone: trimmedPhone || null,
+          forward_interval_minutes: forwardInterval,
+          beta_features: nextBetaFeatures,
         })
         .eq('user_id', user.id);
+
       if (updateError) {
-        throw new Error(t('saveFailed', { message: updateError.message }));
+        // Fallback if migration 050 columns (phone / forward_interval_minutes)
+        // haven't been added to the database schema yet: persist via beta_features.
+        const { error: fallbackError } = await supabase
+          .from('profiles')
+          .update({
+            full_name: trimmedName,
+            avatar_url: nextAvatarUrl,
+            beta_features: nextBetaFeatures,
+          })
+          .eq('user_id', user.id);
+        if (fallbackError) {
+          throw new Error(t('saveFailed', { message: fallbackError.message }));
+        }
       }
 
       // Email change goes through Supabase Auth, which emails a
@@ -196,8 +236,38 @@ export function ProfileForm() {
     !!profile &&
     (fullName.trim() !== (profile.full_name ?? '') ||
       email.trim().toLowerCase() !== (profile.email ?? '').toLowerCase() ||
+      phone.trim() !== (profile.phone ?? '') ||
+      forwardInterval !== normalizeForwardInterval(profile.forward_interval_minutes ?? 60) ||
       pendingAvatar !== null ||
       removeAvatar);
+
+  const onForwardNow = async () => {
+    if (!phone.trim()) {
+      toast.error('Please enter and save your WhatsApp contact number first.');
+      return;
+    }
+    setForwardingNow(true);
+    try {
+      const res = await fetch('/api/flows/forward-conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceRecent: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to forward conversations');
+      }
+      if (data.forwarded > 0) {
+        toast.success(`Forwarded ${data.forwarded} conversation(s) to ${phone.trim()}`);
+      } else {
+        toast.info('No active or pending workflow conversations to forward right now.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to forward');
+    } finally {
+      setForwardingNow(false);
+    }
+  };
 
   const joined = user?.created_at
     ? new Date(user.created_at).toLocaleDateString(undefined, {
@@ -302,6 +372,85 @@ export function ProfileForm() {
                   })}
                 </span>
               </p>
+            )}
+          </div>
+
+          {/* WhatsApp Contact Number & Conversation Forwarding Interval */}
+          <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Phone className="size-4 text-primary" />
+                WhatsApp Lead &amp; Conversation Forwarding
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add your WhatsApp contact number to automatically receive complete client conversations, client details (name &amp; phone), and all workflow answers (including <strong>Property Inquiry &amp; Site Visit</strong>).
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="profile-phone" className="text-foreground">
+                  WhatsApp Contact Number
+                </Label>
+                <Input
+                  id="profile-phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="e.g. +91 98765 43210"
+                  maxLength={25}
+                  disabled={saving}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Include country code (e.g. <code>919876543210</code> or <code>+919876543210</code>).
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="profile-forward-interval" className="flex items-center gap-1.5 text-foreground">
+                  <Clock className="size-3.5 text-muted-foreground" />
+                  Forward Interval (Admin Setting)
+                </Label>
+                <Select
+                  value={String(forwardInterval)}
+                  onValueChange={(v) => setForwardInterval(normalizeForwardInterval(v))}
+                  disabled={saving}
+                >
+                  <SelectTrigger id="profile-forward-interval" className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">Every 30 Minutes</SelectItem>
+                    <SelectItem value="60">Every 1 Hour (Default)</SelectItem>
+                    <SelectItem value="120">Every 2 Hours</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Forwards complete conversation &amp; client answers after this time from the client&apos;s first message.
+                </p>
+              </div>
+            </div>
+
+            {profile?.phone && (
+              <div className="flex items-center justify-between border-t border-border/60 pt-3">
+                <span className="text-xs text-muted-foreground">
+                  Active forwarding to <strong>{profile.phone}</strong> ({forwardInterval === 30 ? '30 minutes' : forwardInterval === 120 ? '2 hours' : '1 hour'} interval)
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={onForwardNow}
+                  disabled={forwardingNow || saving || dirty}
+                >
+                  {forwardingNow ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Send className="size-3.5" />
+                  )}
+                  Forward Recent Now
+                </Button>
+              </div>
             )}
           </div>
 

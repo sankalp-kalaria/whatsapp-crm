@@ -1359,6 +1359,10 @@
           "label": "Tag contact",
           "blurb": "Adds or removes a contact tag"
         },
+        "forward_conversation": {
+          "label": "Forward conversation",
+          "blurb": "Forwards client details & conversation to profile number"
+        },
         "handoff": {
           "label": "Handoff to agent",
           "blurb": "Hands the conversation to a human"

@@ -1359,6 +1359,10 @@
           "label": "Marcar contato",
           "blurb": "Adiciona ou remove uma tag do contato"
         },
+        "forward_conversation": {
+          "label": "Encaminhar conversa",
+          "blurb": "Envia dados do cliente e conversa para o número do perfil"
+        },
         "handoff": {
           "label": "Transferir para agente",
           "blurb": "Passa a conversa para um humano"

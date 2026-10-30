@@ -173,6 +173,26 @@ export interface SetTagNodeConfig {
   next_node_key: string;
 }
 
+/**
+ * Reusable node that forwards the client's details (name, phone) + captured
+ * workflow answers + complete conversation transcript to the admin's Profile
+ * WhatsApp contact number after a configurable interval (30m / 1h / 2h from
+ * the client's first message, or immediately).
+ */
+export interface ForwardConversationNodeConfig {
+  /**
+   * Interval after the client's first message before forwarding:
+   * 'profile_default' reads the admin's setting in Settings → Your profile (30m / 1h / 2h).
+   */
+  interval_mode?: "profile_default" | "30" | "60" | "120" | "immediate";
+  /** Optional override phone number. When blank, uses the Profile WhatsApp Contact Number. */
+  recipient_phone?: string;
+  /** Optional custom note/header included in the forwarded WhatsApp summary. */
+  custom_note?: string;
+  /** Auto-advance target after scheduling/executing the forward. */
+  next_node_key: string;
+}
+
 // Terminal nodes carry no config — they just stop the run.
 export type EndNodeConfig = Record<string, never>;
 
@@ -193,6 +213,7 @@ export type FlowNodeConfig =
   | { node_type: "collect_input"; config: CollectInputNodeConfig }
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
+  | { node_type: "forward_conversation"; config: ForwardConversationNodeConfig }
   | { node_type: "handoff"; config: HandoffNodeConfig }
   | { node_type: "end"; config: EndNodeConfig };
 

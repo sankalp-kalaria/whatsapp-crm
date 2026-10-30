@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
+import { normalizeFlowNodeRow } from '@/lib/flows/forward-conversation'
 import { getT } from '@/lib/i18n/translate'
 
 const t = getT('Api')
@@ -71,7 +72,14 @@ export async function GET(
   if (!flow) {
     return NextResponse.json({ error: t('common.notFound') }, { status: 404 })
   }
-  return NextResponse.json({ flow, nodes: nodes ?? [] })
+  return NextResponse.json({
+    flow,
+    nodes: (nodes ?? []).map((n) =>
+      normalizeFlowNodeRow(
+        n as { node_key: string; node_type: string; config: Record<string, unknown> },
+      ),
+    ),
+  })
 }
 
 interface PutBody {
@@ -157,18 +165,37 @@ export async function PUT(
       return NextResponse.json({ error: delErr.message }, { status: 500 })
     }
     if (body.nodes.length > 0) {
-      const { error: insErr } = await admin.from('flow_nodes').insert(
-        body.nodes.map((n) => ({
-          flow_id: id,
-          node_key: n.node_key,
-          node_type: n.node_type,
-          config: n.config,
-          position_x: n.position_x ?? 0,
-          position_y: n.position_y ?? 0,
-        })),
-      )
+      const rowsToInsert = body.nodes.map((n) => ({
+        flow_id: id,
+        node_key: n.node_key,
+        node_type: n.node_type,
+        config: n.config,
+        position_x: n.position_x ?? 0,
+        position_y: n.position_y ?? 0,
+      }))
+      const { error: insErr } = await admin.from('flow_nodes').insert(rowsToInsert)
       if (insErr) {
-        return NextResponse.json({ error: insErr.message }, { status: 500 })
+        // Fallback if migration 050 hasn't added 'forward_conversation' to flow_nodes_node_type_check yet
+        if (
+          insErr.message.includes('flow_nodes_node_type_check') &&
+          rowsToInsert.some((r) => r.node_type === 'forward_conversation')
+        ) {
+          const fallbackRows = rowsToInsert.map((r) =>
+            r.node_type === 'forward_conversation'
+              ? {
+                  ...r,
+                  node_type: 'http_fetch',
+                  config: { ...r.config, __node_type: 'forward_conversation' },
+                }
+              : r,
+          )
+          const { error: fbErr } = await admin.from('flow_nodes').insert(fallbackRows)
+          if (fbErr) {
+            return NextResponse.json({ error: fbErr.message }, { status: 500 })
+          }
+        } else {
+          return NextResponse.json({ error: insErr.message }, { status: 500 })
+        }
       }
     }
   }
@@ -183,7 +210,14 @@ export async function PUT(
       .eq('flow_id', id)
       .order('created_at', { ascending: true }),
   ])
-  return NextResponse.json({ flow, nodes: nodes ?? [] })
+  return NextResponse.json({
+    flow,
+    nodes: (nodes ?? []).map((n) =>
+      normalizeFlowNodeRow(
+        n as { node_key: string; node_type: string; config: Record<string, unknown> },
+      ),
+    ),
+  })
 }
 
 export async function DELETE(

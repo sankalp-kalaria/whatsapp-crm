@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { resolveFallbackPolicy } from '@/lib/flows/fallback'
+import { processDueConversationForwards } from '@/lib/flows/forward-conversation'
 
 /**
  * Sweep abandoned active flow runs.
@@ -48,6 +49,8 @@ export async function GET(request: Request) {
   const admin = supabaseAdmin()
   const now = new Date()
 
+  const forwardRes = await processDueConversationForwards(admin)
+
   // Pull all currently-active runs along with their parent flow's
   // fallback_policy. Joined in one query — the small set of active
   // runs per tenant keeps this cheap.
@@ -62,7 +65,7 @@ export async function GET(request: Request) {
     console.error('[flows-cron] active-run scan failed:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-  if (!runs?.length) return NextResponse.json({ swept: 0 })
+  if (!runs?.length) return NextResponse.json({ swept: 0, forwarded: forwardRes.forwarded })
 
   type Row = {
     id: string
@@ -108,5 +111,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ swept })
+  return NextResponse.json({ swept, forwarded: forwardRes.forwarded })
 }

@@ -18,6 +18,7 @@
 
 import {
   Flag,
+  Forward,
   GitFork,
   Inbox,
   ListChecks,
@@ -49,6 +50,7 @@ export type NodeType =
   | 'collect_input'
   | 'condition'
   | 'set_tag'
+  | 'forward_conversation'
   | 'handoff'
   | 'end';
 
@@ -145,6 +147,12 @@ export const NODE_META: Record<
     color: 'text-pink-400',
     category: 'logic',
   },
+  forward_conversation: {
+    slugSeed: 'Forward conversation',
+    icon: Forward,
+    color: 'text-emerald-400',
+    category: 'messaging',
+  },
   handoff: {
     slugSeed: 'Handoff to agent',
     icon: UserPlus,
@@ -195,6 +203,7 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
+  forward_conversation: { l: 0.64, c: 0.14, h: 150 }, // emerald-teal — forward summary
   handoff: { l: 0.65, c: 0.17, h: 16 }, // rose — hands off
   end: { l: 0.55, c: 0.01, h: 260 }, // neutral grey — terminal
 };
@@ -409,6 +418,27 @@ export function summarizeNode(
       return tagId
         ? t ? t('tagPicked', { mode, tag: tagId.slice(0, 8) }) : `${mode} tag ${tagId.slice(0, 8)}…`
         : t ? t('tagNone', { mode }) : `${mode} tag (none picked)`;
+    }
+    case 'forward_conversation': {
+      const mode =
+        typeof cfg.interval_mode === 'string'
+          ? cfg.interval_mode
+          : 'profile_default';
+      const intervalText =
+        mode === '30'
+          ? '30 min'
+          : mode === '60'
+            ? '1 hour'
+            : mode === '120'
+              ? '2 hours'
+              : mode === 'immediate'
+                ? 'Immediate'
+                : 'Profile interval (30m/1h/2h)';
+      const phone =
+        typeof cfg.recipient_phone === 'string' && cfg.recipient_phone.trim()
+          ? cfg.recipient_phone.trim()
+          : 'Profile number';
+      return `Forward to ${phone} · ${intervalText}`;
     }
     case 'handoff': {
       const note = typeof cfg.note === 'string' ? cfg.note : '';

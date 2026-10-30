@@ -30,6 +30,17 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
     } else if (user) {
       // Ensure the default Property Inquiry & Site Visit flow is bootstrapped and active for this account
       fetch("/api/flows/ensure-default", { method: "POST" }).catch(() => {});
+
+      // Periodically check and forward any due workflow conversations (30m / 1h / 2h intervals)
+      const forwardTimer = setInterval(() => {
+        fetch("/api/flows/forward-conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }).catch(() => {});
+      }, 60_000);
+
+      return () => clearInterval(forwardTimer);
     }
   }, [user, loading, router]);
 

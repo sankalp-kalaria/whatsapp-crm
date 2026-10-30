@@ -196,6 +196,17 @@ export function NodeConfigForm({
         />
       );
 
+    case "forward_conversation":
+      return (
+        <ForwardConversationForm
+          cfg={cfg as ForwardConversationCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          t={t}
+        />
+      );
+
     case "handoff":
       return (
         <TextRow
@@ -826,6 +837,102 @@ function SetTagForm({
           )}
         </div>
       </div>
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label={t("thenAdvanceTo")}
+      />
+    </>
+  );
+}
+
+// ============================================================
+// forward_conversation
+// ============================================================
+
+interface ForwardConversationCfg {
+  interval_mode?: "profile_default" | "30" | "60" | "120" | "immediate";
+  recipient_phone?: string;
+  custom_note?: string;
+  next_node_key?: string;
+}
+
+function ForwardConversationForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  t,
+}: {
+  cfg: ForwardConversationCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const intervalMode = cfg.interval_mode ?? "profile_default";
+
+  return (
+    <>
+      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-muted-foreground">
+        Forwards the client&apos;s <strong>Name</strong>, <strong>Phone Number</strong>,{" "}
+        <strong>All Answers</strong>, and <strong>Complete Conversation</strong> to your Profile WhatsApp Contact Number.
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">
+            Forward Interval (from client&apos;s first message)
+          </label>
+          <Select
+            value={intervalMode}
+            onValueChange={(v) =>
+              onUpdateConfig({
+                interval_mode: v as ForwardConversationCfg["interval_mode"],
+              })
+            }
+          >
+            <SelectTrigger className="bg-muted">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="profile_default">
+                Use Admin Profile Setting (30m / 1h / 2h)
+              </SelectItem>
+              <SelectItem value="30">After 30 Minutes</SelectItem>
+              <SelectItem value="60">After 1 Hour</SelectItem>
+              <SelectItem value="120">After 2 Hours</SelectItem>
+              <SelectItem value="immediate">
+                Immediately when reached
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">
+            Recipient Phone Override (optional)
+          </label>
+          <Input
+            value={cfg.recipient_phone ?? ""}
+            onChange={(e) =>
+              onUpdateConfig({ recipient_phone: e.target.value })
+            }
+            placeholder="Uses Profile Contact Number if blank"
+            className="bg-muted text-xs"
+          />
+        </div>
+      </div>
+
+      <TextRow
+        label="Custom Summary Note (optional)"
+        value={cfg.custom_note ?? ""}
+        onChange={(v) => onUpdateConfig({ custom_note: v })}
+        rows={2}
+      />
+
       <NextNodeRow
         value={cfg.next_node_key ?? ""}
         allNodes={allNodes}

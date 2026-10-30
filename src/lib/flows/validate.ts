@@ -715,6 +715,30 @@ function validateNode(
       break;
     }
 
+    case "forward_conversation": {
+      const cfg = node.config as {
+        next_node_key?: string;
+      };
+      if (!cfg.next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: t("sendMessageNeedsNext"),
+        });
+      } else if (!knownKeys.has(cfg.next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: t("sendMessageMissingNext", { key: cfg.next_node_key }),
+        });
+      }
+      break;
+    }
+
     case "handoff":
     case "end":
       // Terminal nodes have no outgoing edges; nothing to validate
@@ -765,7 +789,8 @@ function outgoingEdges(node: NodeInput): string[] {
     case "send_message":
     case "send_media":
     case "collect_input":
-    case "set_tag": {
+    case "set_tag":
+    case "forward_conversation": {
       const cfg = node.config as { next_node_key?: string };
       return cfg.next_node_key ? [cfg.next_node_key] : [];
     }

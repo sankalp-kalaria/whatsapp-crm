@@ -186,6 +186,13 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
       };
     case "set_tag":
       return { mode: "add", tag_id: "", next_node_key: "" };
+    case "forward_conversation":
+      return {
+        interval_mode: "profile_default",
+        recipient_phone: "",
+        custom_note: "",
+        next_node_key: "",
+      };
     case "handoff":
       return { note: "" };
     case "end":
@@ -250,13 +257,23 @@ export function FlowEditorProvider({
     trigger_config: initialFlow.trigger_config as Record<string, unknown>,
     entry_node_id: initialFlow.entry_node_id,
     status: initialFlow.status,
-    nodes: initialNodes.map((n) => ({
-      node_key: n.node_key,
-      node_type: n.node_type as NodeType,
-      config: n.config as Record<string, unknown>,
-      position_x: n.position_x,
-      position_y: n.position_y,
-    })),
+    nodes: initialNodes.map((raw) => {
+      const isFallbackForward =
+        (raw.node_type as string) === "http_fetch" &&
+        raw.config &&
+        (raw.config as Record<string, unknown>).__node_type === "forward_conversation";
+      const cleanedConfig = { ...(raw.config as Record<string, unknown>) };
+      if (isFallbackForward) {
+        delete cleanedConfig.__node_type;
+      }
+      return {
+        node_key: raw.node_key,
+        node_type: (isFallbackForward ? "forward_conversation" : raw.node_type) as NodeType,
+        config: cleanedConfig,
+        position_x: raw.position_x,
+        position_y: raw.position_y,
+      };
+    }),
   }));
 
   const [saving, setSaving] = useState(false);

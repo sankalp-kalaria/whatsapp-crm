@@ -50,6 +50,7 @@ import {
   type FlowNodeRow,
   type FlowRow,
   type FlowRunRow,
+  type ForwardConversationNodeConfig,
   type ParsedInbound,
   type SendButtonsNodeConfig,
   type SendListNodeConfig,
@@ -59,6 +60,13 @@ import {
   type StartNodeConfig,
   type KeywordTriggerConfig,
 } from "./types";
+import {
+  executeConversationForwardForRun,
+  findForwardConversationNode,
+  normalizeFlowNodeRow,
+  processDueConversationForwards,
+  resolveForwardTargetAndInterval,
+} from "./forward-conversation";
 
 // ============================================================
 // Pure helpers — extracted so engine.test.ts can exercise them
@@ -231,7 +239,8 @@ export function isAutoAdvancing(node_type: string): boolean {
     node_type === "send_message" ||
     node_type === "send_media" ||
     node_type === "condition" ||
-    node_type === "set_tag"
+    node_type === "set_tag" ||
+    node_type === "forward_conversation"
   );
 }
 
@@ -354,7 +363,8 @@ async function loadAllNodes(
   }
   const map = new Map<string, FlowNodeRow>();
   for (const row of (data ?? []) as FlowNodeRow[]) {
-    map.set(row.node_key, row);
+    const normalized = normalizeFlowNodeRow(row);
+    map.set(normalized.node_key, normalized);
   }
   return map;
 }
@@ -904,6 +914,44 @@ async function advanceFromNodeKey(
       currentKey = cfg.next_node_key;
       continue;
     }
+    if (node.node_type === "forward_conversation") {
+      const cfg = node.config as unknown as ForwardConversationNodeConfig;
+      try {
+        const { intervalMinutes } = await resolveForwardTargetAndInterval(
+          db,
+          run.account_id,
+          run.user_id,
+          cfg,
+        );
+        const runStartMs = new Date(run.started_at).getTime();
+        const dueAtMs = runStartMs + intervalMinutes * 60 * 1000;
+
+        if (intervalMinutes === 0 || Date.now() >= dueAtMs) {
+          await executeConversationForwardForRun(db, run, cfg);
+        } else {
+          const scheduledIso = new Date(dueAtMs).toISOString();
+          const updatedVars = {
+            ...(run.vars || {}),
+            forward_node_key: node.node_key,
+            forward_interval_minutes: intervalMinutes,
+            forward_scheduled_at: scheduledIso,
+            forward_status: "pending",
+          };
+          run.vars = updatedVars;
+          await db
+            .from("flow_runs")
+            .update({ vars: updatedVars })
+            .eq("id", run.id);
+        }
+      } catch (err) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "forward_conversation_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      currentKey = cfg.next_node_key;
+      continue;
+    }
     if (node.node_type === "send_buttons") {
       // Same failure contract as send_message / send_media /
       // collect_input above: log + fail the run. Previously an
@@ -1027,6 +1075,8 @@ export async function dispatchInboundToFlows(
   input: DispatchInboundInput & { isFirstInboundMessage: boolean },
 ): Promise<DispatchInboundResult> {
   const db = supabaseAdmin();
+  //Opportunistically drain any due conversation forwards in the background
+  void processDueConversationForwards(db, { accountId: input.accountId });
   try {
     const activeRun = await loadActiveRunForContact(
       db,
@@ -1326,6 +1376,31 @@ async function startNewRun(
     ? `${siteUrl}/book-visit/${input.conversationId}`
     : `/book-visit/${input.conversationId}`;
 
+  // Check if this flow has a forward_conversation node so we can arm the
+  // interval timer (30m / 1h / 2h) right from the client's first message.
+  const initialVars: Record<string, unknown> = { calendar_link: calendarLink };
+  const forwardNode = findForwardConversationNode(nodes);
+  if (forwardNode) {
+    try {
+      const fCfg = forwardNode.config as unknown as ForwardConversationNodeConfig;
+      const { intervalMinutes } = await resolveForwardTargetAndInterval(
+        db,
+        flow.account_id,
+        flow.user_id,
+        fCfg,
+      );
+      const effectiveMinutes = intervalMinutes > 0 ? intervalMinutes : 60;
+      initialVars.forward_node_key = forwardNode.node_key;
+      initialVars.forward_interval_minutes = effectiveMinutes;
+      initialVars.forward_scheduled_at = new Date(
+        Date.now() + effectiveMinutes * 60 * 1000,
+      ).toISOString();
+      initialVars.forward_status = "pending";
+    } catch (err) {
+      console.warn("[flows] failed to initialize forward schedule:", err);
+    }
+  }
+
   const { data: inserted, error: insErr } = await db
     .from("flow_runs")
     .insert({
@@ -1342,7 +1417,7 @@ async function startNewRun(
       conversation_id: input.conversationId,
       status: "active",
       current_node_key: flow.entry_node_id,
-      vars: { calendar_link: calendarLink },
+      vars: initialVars,
     })
     .select("*")
     .maybeSingle();
