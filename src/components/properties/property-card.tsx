@@ -29,6 +29,7 @@ interface PropertyCardProps {
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onShare: () => void;
 }
 
 export function PropertyCard({
@@ -36,6 +37,7 @@ export function PropertyCard({
   onClick,
   onEdit,
   onDelete,
+  onShare,
 }: PropertyCardProps) {
   const mediaList = property.media_urls || [];
   const primaryMedia = mediaList[0] || null;
@@ -45,19 +47,7 @@ export function PropertyCard({
 
   function shareOnWhatsApp(e: React.MouseEvent) {
     e.stopPropagation();
-    const lines = [
-      `*${property.title}* (${property.property_type.toUpperCase()})`,
-      property.price ? `💰 Price/Rent: ₹${property.price.toLocaleString('en-IN')}` : null,
-      property.bedrooms ? `🛏️ Bedrooms: ${property.bedrooms} BHK` : null,
-      property.area_sqft ? `📐 Area: ${property.area_sqft} sq.ft.` : null,
-      property.address ? `📍 Location: ${property.address}${property.city ? `, ${property.city}` : ''}` : null,
-      property.google_drive_folder_url
-        ? `📁 Drive Media: ${property.google_drive_folder_url}`
-        : null,
-    ].filter(Boolean);
-
-    const text = encodeURIComponent(lines.join('\n'));
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    onShare();
   }
 
   return (

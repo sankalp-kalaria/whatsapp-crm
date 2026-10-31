@@ -7,12 +7,38 @@ export interface MetricDelta {
   previous: number
 }
 
+export interface LeadSentCount {
+  conversationId: string
+  leadName: string
+  leadPhone: string
+  totalSent: number
+  botSent: number
+  agentSent: number
+}
+
+export interface PeriodSentStats {
+  key: string // 'all' | 'today' | 'YYYY-MM'
+  label: string // e.g. 'All Time', 'Today', 'October 2026'
+  totalSent: number
+  botSent: number
+  agentSent: number
+  leadsCount: number
+  leadsBreakdown: LeadSentCount[]
+}
+
+export interface SentMessagesSummary {
+  allTime: PeriodSentStats
+  today: PeriodSentStats
+  months: PeriodSentStats[] // Last 12 months + any older months with activity
+}
+
 export interface MetricsBundle {
   activeConversations: MetricDelta
   newContactsToday: MetricDelta
   openDealsValue: number
   openDealsCount: number
   messagesSentToday: MetricDelta
+  sentSummary?: SentMessagesSummary
 }
 
 export interface ConversationsSeriesPoint {

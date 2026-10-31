@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/hooks/use-auth'
 import { formatCurrency } from '@/lib/currency'
@@ -22,6 +22,7 @@ import type {
   ActivityItem,
   ConversationsSeriesPoint,
   MetricsBundle,
+  PeriodSentStats,
   PipelineDonutData,
   ResponseTimeSummary,
 } from '@/lib/dashboard/types'
@@ -43,11 +44,9 @@ export default function DashboardPage() {
   const { defaultCurrency } = useAuth()
   const [metrics, setMetrics] = useState<MetricsBundle | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(true)
+  const [selectedSentPeriod, setSelectedSentPeriod] = useState<string>('all')
 
   const [range, setRange] = useState<RangeDays>(30)
-  // Keep a cache per range so switching tabs doesn't re-fetch what we
-  // already have. Ranges the user hasn't opened yet stay null and
-  // trigger a fetch on first view.
   const [series, setSeries] = useState<Record<RangeDays, ConversationsSeriesPoint[] | null>>({
     7: null,
     30: null,
@@ -67,9 +66,6 @@ export default function DashboardPage() {
   const loadAll = useCallback(() => {
     const db = createClient()
 
-    // Kick everything off in parallel. Each block has its own
-    // setState + finally so a slow query doesn't hold up faster
-    // sections — each widget shows its own skeleton independently.
     void loadMetrics(db)
       .then((m) => setMetrics(m))
       .catch((err) => console.error('[dashboard] metrics failed:', err))
@@ -90,9 +86,6 @@ export default function DashboardPage() {
       .catch((err) => console.error('[dashboard] response time failed:', err))
       .finally(() => setResponseTimeLoading(false))
 
-    // Fetch up to 50 so the biggest page-size option in the feed
-    // (50 rows) is already in memory — switching sizes then becomes
-    // a pure client-side slice with no extra round trip.
     void loadActivity(db, 50)
       .then((a) => setActivity(a))
       .catch((err) => console.error('[dashboard] activity failed:', err))
@@ -103,10 +96,6 @@ export default function DashboardPage() {
     loadAll()
   }, [loadAll])
 
-  // Range switch handler — kept in an event callback (not an effect)
-  // so the setState calls stay out of the react-hooks/set-state-in-effect
-  // rule's way. The cached bucket check means switching back to a
-  // previously-viewed range is instant and doesn't re-fetch.
   const handleRangeChange = useCallback(
     (r: RangeDays) => {
       setRange(r)
@@ -120,6 +109,16 @@ export default function DashboardPage() {
     },
     [series],
   )
+
+  const activeSentStats: PeriodSentStats | null = useMemo(() => {
+    if (!metrics?.sentSummary) return null
+    if (selectedSentPeriod === 'all') return metrics.sentSummary.allTime
+    if (selectedSentPeriod === 'today') return metrics.sentSummary.today
+    return (
+      metrics.sentSummary.months.find((m) => m.key === selectedSentPeriod) ??
+      metrics.sentSummary.allTime
+    )
+  }, [metrics, selectedSentPeriod])
 
   return (
     <div className="space-y-5">
@@ -141,12 +140,13 @@ export default function DashboardPage() {
               title={t('activeConversations')}
               value={metrics.activeConversations.current.toLocaleString()}
               icon={MessageSquare}
+              href="/inbox?status=open"
               delta={{
                 sign: metrics.activeConversations.previous,
                 label: deltaLabel(
-                  metrics.activeConversations.previous, 
-                  t('newTodayVsYesterday'), 
-                  t('noChange', { suffix: t('newTodayVsYesterday') })
+                  metrics.activeConversations.previous,
+                  t('newTodayVsYesterday'),
+                  t('noChange', { suffix: t('newTodayVsYesterday') }),
                 ),
               }}
             />
@@ -154,13 +154,14 @@ export default function DashboardPage() {
               title={t('newContactsToday')}
               value={metrics.newContactsToday.current.toLocaleString()}
               icon={UserPlus}
+              href="/contacts?filter=today"
               delta={{
                 sign:
                   metrics.newContactsToday.current - metrics.newContactsToday.previous,
                 label: deltaLabel(
                   metrics.newContactsToday.current - metrics.newContactsToday.previous,
                   t('vsYesterday'),
-                  t('noChange', { suffix: t('vsYesterday') })
+                  t('noChange', { suffix: t('vsYesterday') }),
                 ),
               }}
             />
@@ -168,21 +169,73 @@ export default function DashboardPage() {
               title={t('openDealsValue')}
               value={formatCurrency(metrics.openDealsValue, defaultCurrency)}
               icon={DollarSign}
+              href="/pipelines"
               subtitle={t('openDeals', { count: metrics.openDealsCount })}
             />
             <MetricCard
-              title={t('messagesSentToday')}
-              value={metrics.messagesSentToday.current.toLocaleString()}
+              title={
+                selectedSentPeriod === 'today'
+                  ? t('messagesSentToday')
+                  : 'Messages Sent'
+              }
+              value={
+                activeSentStats
+                  ? activeSentStats.totalSent.toLocaleString()
+                  : metrics.messagesSentToday.current.toLocaleString()
+              }
               icon={Send}
-              delta={{
-                sign:
-                  metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                label: deltaLabel(
-                  metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                  t('vsYesterday'),
-                  t('noChange', { suffix: t('vsYesterday') })
-                ),
-              }}
+              headerRight={
+                metrics.sentSummary ? (
+                  <select
+                    aria-label="Filter sent messages by month"
+                    value={selectedSentPeriod}
+                    onChange={(e) => setSelectedSentPeriod(e.target.value)}
+                    className="h-7 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="all">
+                      All Time ({metrics.sentSummary.allTime.totalSent})
+                    </option>
+                    <option value="today">
+                      Today ({metrics.sentSummary.today.totalSent})
+                    </option>
+                    {metrics.sentSummary.months.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.label} ({m.totalSent})
+                      </option>
+                    ))}
+                  </select>
+                ) : null
+              }
+              delta={
+                selectedSentPeriod === 'today'
+                  ? {
+                      sign:
+                        metrics.messagesSentToday.current -
+                        metrics.messagesSentToday.previous,
+                      label: deltaLabel(
+                        metrics.messagesSentToday.current -
+                          metrics.messagesSentToday.previous,
+                        t('vsYesterday'),
+                        t('noChange', { suffix: t('vsYesterday') }),
+                      ),
+                    }
+                  : undefined
+              }
+              subtitle={
+                selectedSentPeriod !== 'today' && activeSentStats
+                  ? `${activeSentStats.leadsCount} lead${activeSentStats.leadsCount === 1 ? '' : 's'} replied (${activeSentStats.botSent} auto • ${activeSentStats.agentSent} manual)`
+                  : undefined
+              }
+              footerExtra={
+                selectedSentPeriod === 'today' && activeSentStats ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {activeSentStats.leadsCount} lead
+                    {activeSentStats.leadsCount === 1 ? '' : 's'} replied (
+                    {activeSentStats.botSent} auto • {activeSentStats.agentSent}{' '}
+                    manual)
+                  </p>
+                ) : null
+              }
             />
           </>
         )}
@@ -192,12 +245,6 @@ export default function DashboardPage() {
       <QuickActions />
 
       {/* Charts row */}
-      {/* items-stretch (the grid default) stretches the two columns to
-          match the tallest sibling; adding h-full on each wrapper and
-          on the inner panels makes both cards actually fill that
-          stretched height so their rounded borders line up. Without
-          this, the pipeline card rendered at its natural (shorter)
-          height while the line chart drove the row height. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <div className="h-full lg:col-span-3">
           <ConversationsChart

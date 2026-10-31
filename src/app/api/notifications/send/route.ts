@@ -215,7 +215,6 @@ export async function POST(request: Request) {
       if (persistedConversationId) {
         const nowIso = new Date().toISOString();
         await db.from('messages').insert({
-          account_id: accountId,
           conversation_id: persistedConversationId,
           sender_type: 'agent',
           sender_id: userId,

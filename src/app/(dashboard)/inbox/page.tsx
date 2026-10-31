@@ -42,6 +42,15 @@ function InboxPageInner() {
    * automatically instead of showing the empty center panel.
    */
   const deepLinkConvId = searchParams.get("c");
+  const statusParam = searchParams.get("status");
+  const initialFilter =
+    statusParam === "open" ||
+    statusParam === "pending" ||
+    statusParam === "closed" ||
+    statusParam === "unread" ||
+    statusParam === "all"
+      ? statusParam
+      : undefined;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -441,9 +450,22 @@ function InboxPageInner() {
             );
           }
         }
+      } else if (
+        !deepLinkConvId &&
+        statusParam === "open" &&
+        !autoSelectedForDeepLinkRef.current &&
+        loaded.length > 0
+      ) {
+        const firstOpen = loaded.find((c) => c.status === "open") ?? loaded[0];
+        if (firstOpen) {
+          autoSelectedForDeepLinkRef.current = firstOpen.id;
+          setActiveConversation(firstOpen);
+          setActiveContact(firstOpen.contact ?? null);
+          setMessages([]);
+        }
       }
     },
-    [deepLinkConvId, activeConversation?.id]
+    [deepLinkConvId, statusParam, activeConversation?.id]
   );
 
   const handleSelectConversation = useCallback(
@@ -590,6 +612,7 @@ function InboxPageInner() {
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            initialFilter={initialFilter}
           />
         </div>
 

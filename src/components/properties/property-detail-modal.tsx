@@ -31,6 +31,7 @@ interface PropertyDetailModalProps {
   onOpenChange: (open: boolean) => void;
   property: Property | null;
   onEdit: (property: Property) => void;
+  onShare: (property: Property) => void;
 }
 
 export function PropertyDetailModal({
@@ -38,6 +39,7 @@ export function PropertyDetailModal({
   onOpenChange,
   property,
   onEdit,
+  onShare,
 }: PropertyDetailModalProps) {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
 
@@ -48,20 +50,8 @@ export function PropertyDetailModal({
 
   function shareOnWhatsApp() {
     if (!property) return;
-    const lines = [
-      `*${property.title}* (${property.property_type.toUpperCase()})`,
-      property.price ? `💰 Price/Rent: ₹${property.price.toLocaleString('en-IN')}` : null,
-      property.bedrooms ? `🛏️ Bedrooms: ${property.bedrooms} BHK` : null,
-      property.area_sqft ? `📐 Area: ${property.area_sqft} sq.ft.` : null,
-      property.address ? `📍 Location: ${property.address}${property.city ? `, ${property.city}` : ''}` : null,
-      property.description ? `\n📝 Details: ${property.description}` : null,
-      property.google_drive_folder_url
-        ? `\n📁 Photos & Videos (Drive): ${property.google_drive_folder_url}`
-        : null,
-    ].filter(Boolean);
-
-    const text = encodeURIComponent(lines.join('\n'));
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    onOpenChange(false);
+    onShare(property);
   }
 
   return (

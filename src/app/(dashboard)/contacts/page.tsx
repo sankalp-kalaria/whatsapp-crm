@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
@@ -65,8 +66,18 @@ interface ContactWithTags extends Contact {
 }
 
 export default function ContactsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ContactsPageInner />
+    </Suspense>
+  );
+}
+
+function ContactsPageInner() {
   const t = useTranslations('Contacts.page');
   const tGate = useTranslations('GatedButton');
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
@@ -76,6 +87,15 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [dateFilter, setDateFilter] = useState<'all' | 'today'>(() =>
+    searchParams.get('filter') === 'today' ? 'today' : 'all',
+  );
+
+  useEffect(() => {
+    const param = searchParams.get('filter');
+    setDateFilter(param === 'today' ? 'today' : 'all');
+    setPage(0);
+  }, [searchParams]);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
 
@@ -161,6 +181,12 @@ export default function ContactsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
+      if (dateFilter === 'today') {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        query = query.gte('created_at', todayStart.toISOString());
+      }
+
       if (term) {
         const like = `%${term}%`;
         query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
@@ -208,7 +234,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, tagsMap, dateFilter, t]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -384,7 +410,34 @@ export default function ContactsPage() {
       </div>
 
       {/* Search + tag filter */}
-      <div className="space-y-2">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
+          <Button
+            variant={dateFilter === 'all' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => {
+              setDateFilter('all');
+              setPage(0);
+              router.replace('/contacts', { scroll: false });
+            }}
+            className="text-xs"
+          >
+            All Contacts
+          </Button>
+          <Button
+            variant={dateFilter === 'today' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => {
+              setDateFilter('today');
+              setPage(0);
+              router.replace('/contacts?filter=today', { scroll: false });
+            }}
+            className="text-xs"
+          >
+            New Contacts Today
+          </Button>
+        </div>
+
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative w-full max-w-sm">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />

@@ -37,6 +37,8 @@ import {
   recalculateNotificationOnTheSpot,
   type EnrichedNotification,
 } from "@/lib/investors/check-expiries";
+import { loadSentMessagesSummary } from "@/lib/dashboard/queries";
+import type { PeriodSentStats, SentMessagesSummary } from "@/lib/dashboard/types";
 
 // Icon per notification type.
 const TYPE_ICON: Record<Notification["type"], typeof Bell> = {
@@ -90,6 +92,8 @@ export default function NotificationsPage() {
   const [sentKeys, setSentKeys] = useState<Record<string, string>>({});
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
   const [restoringIds, setRestoringIds] = useState<Record<string, boolean>>({});
+  const [sentSummary, setSentSummary] = useState<SentMessagesSummary | null>(null);
+  const [selectedSentMonth, setSelectedSentMonth] = useState<string>("all");
   // Timestamp state used so every calculation uses the current live date on the spot
   const [nowDate, setNowDate] = useState<Date>(() => new Date());
 
@@ -110,7 +114,7 @@ export default function NotificationsPage() {
       }
 
       const supabase = createClient();
-      const [notifRes, invRes, clientRes, tplRes] = await Promise.all([
+      const [notifRes, invRes, clientRes, tplRes, sentStats] = await Promise.all([
         supabase
           .from("notifications")
           .select("*")
@@ -132,9 +136,14 @@ export default function NotificationsPage() {
           .select("*")
           .eq("account_id", accountId)
           .order("created_at", { ascending: false }),
+        loadSentMessagesSummary(supabase).catch(() => null),
       ]);
 
       setRefreshing(false);
+
+      if (sentStats) {
+        setSentSummary(sentStats);
+      }
 
       if (notifRes.error) {
         setError(notifRes.error.message);
@@ -228,6 +237,15 @@ export default function NotificationsPage() {
         { event: "*", schema: "public", table: "clients" },
         () => {
           load();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        () => {
+          loadSentMessagesSummary(supabase)
+            .then((s) => setSentSummary(s))
+            .catch(() => null);
         },
       )
       .subscribe();
@@ -727,6 +745,16 @@ export default function NotificationsPage() {
     }
   }, [unreadIds.length, load, t]);
 
+  const activeSentStats: PeriodSentStats | null = useMemo(() => {
+    if (!sentSummary) return null;
+    if (selectedSentMonth === "all") return sentSummary.allTime;
+    if (selectedSentMonth === "today") return sentSummary.today;
+    return (
+      sentSummary.months.find((m) => m.key === selectedSentMonth) ??
+      sentSummary.allTime
+    );
+  }, [sentSummary, selectedSentMonth]);
+
   if (error) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
@@ -994,6 +1022,138 @@ export default function NotificationsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Automated & Outgoing Sent Messages Counter + Monthly Breakdown */}
+      {sentSummary && activeSentStats && (
+        <div className="rounded-xl border border-primary/25 bg-card p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3.5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                <Send className="size-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  Automated &amp; Outgoing Sent Messages Summary
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                    {activeSentStats.label}
+                  </span>
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Total cumulative replies sent across all leads (e.g. 10 replies to Lead 1 + 5 replies to Lead 2 = 15 total messages sent).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <label
+                htmlFor="sent-month-select"
+                className="text-xs font-medium text-muted-foreground whitespace-nowrap"
+              >
+                Select Month:
+              </label>
+              <select
+                id="sent-month-select"
+                value={selectedSentMonth}
+                onChange={(e) => setSelectedSentMonth(e.target.value)}
+                className="h-9 rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="all">
+                  All Time ({sentSummary.allTime.totalSent} messages)
+                </option>
+                <option value="today">
+                  Today ({sentSummary.today.totalSent} messages)
+                </option>
+                {sentSummary.months.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label} ({m.totalSent} messages)
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* 4 Metric Pills */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">
+                Total Sent ({activeSentStats.label})
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+                {activeSentStats.totalSent.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                All outgoing messages
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3">
+              <p className="text-xs text-emerald-400 font-medium">
+                Automatic / Bot Sent
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-400">
+                {activeSentStats.botSent.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Workflow &amp; auto-replies
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-3">
+              <p className="text-xs text-blue-400 font-medium">
+                Manual / Notification Sent
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-blue-400">
+                {activeSentStats.agentSent.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Direct &amp; reminder replies
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className="text-xs text-muted-foreground">
+                Leads Replied To
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+                {activeSentStats.leadsCount.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Unique conversations
+              </p>
+            </div>
+          </div>
+
+          {/* Per-lead reply count chips */}
+          {activeSentStats.leadsBreakdown.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                Messages Sent Per Lead ({activeSentStats.label}):
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5 max-h-24 overflow-y-auto">
+                {activeSentStats.leadsBreakdown.slice(0, 20).map((lead) => (
+                  <button
+                    key={lead.conversationId}
+                    type="button"
+                    onClick={() =>
+                      router.push(`/inbox?c=${lead.conversationId}`)
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                    title={`Click to open conversation with ${lead.leadName} (${lead.botSent} automatic, ${lead.agentSent} manual)`}
+                  >
+                    <MessageSquare className="size-3 text-primary" />
+                    <span className="font-medium truncate max-w-[140px]">
+                      {lead.leadName}
+                    </span>
+                    <span className="rounded-full bg-primary/15 px-1.5 py-0.2 text-[10px] font-bold text-primary tabular-nums">
+                      {lead.totalSent} msg{lead.totalSent === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* WhatsApp Notification & Reminder Template Selector Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3.5">

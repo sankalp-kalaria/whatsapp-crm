@@ -19,6 +19,36 @@ const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`;
 
 export const DEFAULT_NOTIFICATION_TEMPLATES = [
   {
+    name: 'property_listing_share',
+    language: 'en_US',
+    category: 'UTILITY',
+    components: [
+      {
+        type: 'HEADER',
+        format: 'TEXT',
+        text: 'Exclusive Property Details',
+      },
+      {
+        type: 'BODY',
+        text: 'Hello {{1}}, here are the complete property details for {{2}}: {{3}}. Photos & Videos: {{4}}. Please reply to this message if you would like to schedule a site visit or need more information.',
+        example: {
+          body_text: [
+            [
+              'Rohan Sharma',
+              'Forest Vista Hiraco (1 BHK Flat)',
+              'Sell Price: ₹61,00,000 | Area: 425 sqft | Location: Nr Kashimira Police Station, Mira Road',
+              'View property photos and walkthrough video in the attached links',
+            ],
+          ],
+        },
+      },
+      {
+        type: 'FOOTER',
+        text: 'Property Listing Information',
+      },
+    ],
+  },
+  {
     name: 'workflow_lead_conversation_summary',
     language: 'en_US',
     category: 'UTILITY',

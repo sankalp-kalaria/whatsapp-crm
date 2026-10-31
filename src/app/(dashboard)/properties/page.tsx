@@ -31,6 +31,7 @@ import {
 import { PropertyCard } from '@/components/properties/property-card';
 import { PropertyForm } from '@/components/properties/property-form';
 import { PropertyDetailModal } from '@/components/properties/property-detail-modal';
+import { PropertyShareModal } from '@/components/properties/property-share-modal';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 
@@ -66,6 +67,8 @@ export default function PropertiesPage() {
   const [editProperty, setEditProperty] = useState<Property | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailProperty, setDetailProperty] = useState<Property | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareProperty, setShareProperty] = useState<Property | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Property | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -173,6 +176,11 @@ export default function PropertiesPage() {
   function openDetail(prop: Property) {
     setDetailProperty(prop);
     setDetailOpen(true);
+  }
+
+  function openShare(prop: Property) {
+    setShareProperty(prop);
+    setShareOpen(true);
   }
 
   function confirmDelete(prop: Property) {
@@ -430,6 +438,7 @@ export default function PropertiesPage() {
               onClick={() => openDetail(prop)}
               onEdit={() => openEdit(prop)}
               onDelete={() => confirmDelete(prop)}
+              onShare={() => openShare(prop)}
             />
           ))}
         </div>
@@ -484,14 +493,24 @@ export default function PropertiesPage() {
                     )}
                   </td>
                   <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEdit(prop)}
-                      className="text-xs h-7"
-                    >
-                      Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openShare(prop)}
+                        className="text-xs h-7 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                      >
+                        Share
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEdit(prop)}
+                        className="text-xs h-7"
+                      >
+                        Edit
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -544,6 +563,14 @@ export default function PropertiesPage() {
         onOpenChange={setDetailOpen}
         property={detailProperty}
         onEdit={openEdit}
+        onShare={openShare}
+      />
+
+      {/* Share Property on WhatsApp Modal */}
+      <PropertyShareModal
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        property={shareProperty}
       />
 
       {/* Delete Confirmation */}

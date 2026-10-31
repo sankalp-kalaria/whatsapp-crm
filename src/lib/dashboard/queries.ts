@@ -10,26 +10,180 @@ import {
 import type {
   ActivityItem,
   ConversationsSeriesPoint,
+  LeadSentCount,
   MetricsBundle,
+  PeriodSentStats,
   PipelineDonutData,
   PipelineStageSlice,
   ResponseTimeBucket,
   ResponseTimeSummary,
+  SentMessagesSummary,
 } from './types'
 import { getT } from '@/lib/i18n/translate'
 
 /** Broadcast statuses with a translated label in the activity feed. */
 const BROADCAST_STATUS_KEYS = new Set(['draft', 'scheduled', 'sending', 'sent', 'failed'])
 
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+]
+
 // ------------------------------------------------------------
 // All client-side aggregation. RLS scopes every query to the
 // signed-in user automatically, so we never pass user_id explicitly
-// here. Perf is acceptable for the current scale (low thousands of
-// messages) — if a tenant's dataset outgrows this, we'd migrate the
-// heavy aggregations to SQL RPCs. Noted in the PR.
+// here.
 // ------------------------------------------------------------
 
 type DB = SupabaseClient
+
+interface OutgoingMessageRow {
+  id: string
+  conversation_id: string
+  sender_type: string
+  created_at: string
+  conversations?:
+    | {
+        contact_id?: string | null
+        contacts?:
+          | { name: string | null; phone: string }[]
+          | { name: string | null; phone: string }
+          | null
+      }[]
+    | {
+        contact_id?: string | null
+        contacts?:
+          | { name: string | null; phone: string }[]
+          | { name: string | null; phone: string }
+          | null
+      }
+    | null
+}
+
+function buildPeriodStats(
+  key: string,
+  label: string,
+  rows: OutgoingMessageRow[],
+): PeriodSentStats {
+  let totalSent = 0
+  let botSent = 0
+  let agentSent = 0
+  const byLead = new Map<string, LeadSentCount>()
+
+  for (const r of rows) {
+    totalSent += 1
+    const isBot = r.sender_type === 'bot'
+    if (isBot) botSent += 1
+    else agentSent += 1
+
+    const convId = r.conversation_id || 'unknown'
+    let entry = byLead.get(convId)
+    if (!entry) {
+      const convObj = Array.isArray(r.conversations)
+        ? r.conversations[0]
+        : r.conversations
+      const contactObj = Array.isArray(convObj?.contacts)
+        ? convObj?.contacts[0]
+        : convObj?.contacts
+      const leadName = contactObj?.name || contactObj?.phone || 'Lead'
+      const leadPhone = contactObj?.phone || ''
+      entry = {
+        conversationId: convId,
+        leadName,
+        leadPhone,
+        totalSent: 0,
+        botSent: 0,
+        agentSent: 0,
+      }
+      byLead.set(convId, entry)
+    }
+
+    entry.totalSent += 1
+    if (isBot) entry.botSent += 1
+    else entry.agentSent += 1
+  }
+
+  const leadsBreakdown = Array.from(byLead.values()).sort(
+    (a, b) => b.totalSent - a.totalSent,
+  )
+
+  return {
+    key,
+    label,
+    totalSent,
+    botSent,
+    agentSent,
+    leadsCount: leadsBreakdown.length,
+    leadsBreakdown,
+  }
+}
+
+export async function loadSentMessagesSummary(
+  db: DB,
+): Promise<SentMessagesSummary> {
+  const { data } = await db
+    .from('messages')
+    .select(
+      'id, conversation_id, sender_type, created_at, conversations(contact_id, contacts(name, phone))',
+    )
+    .neq('sender_type', 'customer')
+    .order('created_at', { ascending: false })
+    .limit(5000)
+
+  const rows = ((data ?? []) as unknown as OutgoingMessageRow[]).filter(
+    (r) => r.sender_type === 'bot' || r.sender_type === 'agent',
+  )
+
+  const todayStart = startOfLocalDay()
+  const todayRows = rows.filter((r) => new Date(r.created_at) >= todayStart)
+
+  // Generate last 12 months keys (YYYY-MM) in descending order
+  const now = new Date()
+  const monthKeysSet = new Set<string>()
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    monthKeysSet.add(ym)
+  }
+
+  const rowsByMonth = new Map<string, OutgoingMessageRow[]>()
+  for (const r of rows) {
+    const d = new Date(r.created_at)
+    if (Number.isNaN(d.getTime())) continue
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    monthKeysSet.add(ym)
+    const list = rowsByMonth.get(ym) ?? []
+    list.push(r)
+    rowsByMonth.set(ym, list)
+  }
+
+  const sortedMonthKeys = Array.from(monthKeysSet).sort((a, b) =>
+    a > b ? -1 : a < b ? 1 : 0,
+  )
+
+  const months: PeriodSentStats[] = sortedMonthKeys.map((ym) => {
+    const [yStr, mStr] = ym.split('-')
+    const monthIndex = Math.max(0, Math.min(11, parseInt(mStr, 10) - 1))
+    const label = `${MONTH_NAMES[monthIndex]} ${yStr}`
+    return buildPeriodStats(ym, label, rowsByMonth.get(ym) ?? [])
+  })
+
+  return {
+    allTime: buildPeriodStats('all', 'All Time (Total Sent)', rows),
+    today: buildPeriodStats('today', 'Today', todayRows),
+    months,
+  }
+}
 
 // --- 1. Metric cards ---------------------------------------------------
 
@@ -46,6 +200,7 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
     openDeals,
     messagesToday,
     messagesYesterday,
+    sentSummary,
   ] = await Promise.all([
     db.from('conversations').select('id', { count: 'exact', head: true }).eq('status', 'open'),
     db
@@ -69,14 +224,15 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
     db
       .from('messages')
       .select('id', { count: 'exact', head: true })
-      .eq('sender_type', 'agent')
+      .neq('sender_type', 'customer')
       .gte('created_at', todayStart),
     db
       .from('messages')
       .select('id', { count: 'exact', head: true })
-      .eq('sender_type', 'agent')
+      .neq('sender_type', 'customer')
       .gte('created_at', yesterdayStart)
       .lt('created_at', todayStart),
+    loadSentMessagesSummary(db),
   ])
 
   const openDealsRows = (openDeals.data ?? []) as { value: number | null }[]
@@ -85,9 +241,6 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
   return {
     activeConversations: {
       current: openConvCur.count ?? 0,
-      // "vs yesterday" on a current-state count has no clean answer
-      // without snapshots — we show the delta in NEW open conversations
-      // today vs yesterday. That's the business-meaningful daily signal.
       previous: (newConvToday.count ?? 0) - (newConvYesterday.count ?? 0),
     },
     newContactsToday: {
@@ -100,6 +253,7 @@ export async function loadMetrics(db: DB): Promise<MetricsBundle> {
       current: messagesToday.count ?? 0,
       previous: messagesYesterday.count ?? 0,
     },
+    sentSummary,
   }
 }
 
@@ -160,9 +314,6 @@ export async function loadPipelineDonut(db: DB): Promise<PipelineDonutData> {
       dealCount: byStage.get(s.id)?.count ?? 0,
       totalValue: byStage.get(s.id)?.total ?? 0,
     }))
-    // Hide empty stages from the ring (but we'd still show them in the
-    // legend if the user wanted a full breakdown — trimming keeps the
-    // visual clean for the common case).
     .filter((s) => s.totalValue > 0 || s.dealCount > 0)
 
   return {
@@ -174,11 +325,6 @@ export async function loadPipelineDonut(db: DB): Promise<PipelineDonutData> {
 // --- 4. Response time by day of week ----------------------------------
 
 export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
-  // Pull the last 14 days of messages in one shot, then walk per
-  // conversation to find each "first inbound" → "first subsequent
-  // outbound" pair. 14 days gives us both "this week" + "last week"
-  // with enough overlap if the user opens the dashboard late on a
-  // Monday.
   const fourteenDaysAgo = daysAgoStart(13).toISOString()
   const { data, error } = await db
     .from('messages')
@@ -194,10 +340,6 @@ export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
     created_at: string
   }[]
 
-  // Group per conversation, pair unreplied customer messages with the
-  // next outbound message from the agent/bot. A single customer message
-  // can only count once (avoids inflating averages if the customer
-  // double-messages while the agent takes time to reply).
   interface Sample {
     customerAt: Date
     responseAt: Date
@@ -224,9 +366,6 @@ export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
   const thisWeekStart = daysAgoStart(mondayIndex(now))
   const lastWeekStart = daysAgoStart(mondayIndex(now) + 7)
 
-  // Per-day-of-week buckets, averaged over both weeks' worth of data
-  // so each bar has more samples to stand on. If a day has no samples
-  // its avgMinutes stays null and the chart renders the bar muted.
   const byDow = new Map<number, number[]>()
   for (let i = 0; i < 7; i++) byDow.set(i, [])
   const thisWeekMins: number[] = []
@@ -256,8 +395,6 @@ export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
     }
   })
 
-  // Silence unused-label warnings — keep the arrays explicitly named
-  // for readability above.
   void DOW_SHORT_MON_FIRST
 
   return {
@@ -270,9 +407,6 @@ export async function loadResponseTime(db: DB): Promise<ResponseTimeSummary> {
 // --- 5. Activity feed --------------------------------------------------
 
 export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> {
-  // Pull ~10 from each source (plenty of headroom after merge-sort),
-  // then interleave by timestamp. The individual per-table limits
-  // keep the payload small; the final limit is enforced after sort.
   const [msgs, contacts, deals, broadcasts, autoLogs] = await Promise.all([
     db
       .from('messages')
@@ -305,8 +439,6 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   const items: ActivityItem[] = []
   const t = getT('Dashboard.activityFeed.items')
 
-  // PostgREST returns nested selections as arrays by default, even when
-  // the foreign key is 1:1. We normalise by taking [0] on each level.
   for (const m of (msgs.data ?? []) as unknown as Array<{
     id: string
     content_text: string | null
